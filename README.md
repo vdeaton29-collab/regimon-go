@@ -1,20 +1,20 @@
-﻿# ðŸ‘‘ Regimon GO
+# 👑 Regimon GO
 
-A PokÃ©mon GOâ€“style catching game set around **Regis High School** on the Upper East Side of Manhattan.
+A Pokémon GO–style catching game set around **Regis High School** on the Upper East Side of Manhattan.
 Walk around 84th Street, spin stops, and catch 25 original Regis-themed creatures, from the humble
 **Homeworm** to the legendary **Ignatiger** and **Regisaurus**.
 
-**â–¶ Play:** https://vdeaton29-collab.github.io/regimon-go/
+**▶ Play:** https://vdeaton29-collab.github.io/regimon-go/
 
 ## How to play
 
 | | |
 |---|---|
-| ðŸš¶ **Walk** | Tap or hold on the map, or use WASD / arrow keys |
-| ðŸ‘† **Encounter** | Tap a Regimon inside your dotted circle |
-| âš¾ **Throw** | Swipe the ball upward. Land it inside the shrinking ring for a Nice / Great / Excellent bonus |
-| ðŸ”· **Stops** | Spin the blue diamonds for Regi Balls, Honors Balls, Magna Cum Balls and Bagels |
-| ðŸ¥¯ **Bagels** | Feed one before throwing to make the next catch easier |
+| 🚶 **Walk** | Tap or hold on the map, or use WASD / arrow keys |
+| 👆 **Encounter** | Tap a Regimon inside your dotted circle |
+| ⚾ **Throw** | Swipe the ball upward. Land it inside the shrinking ring for a Nice / Great / Excellent bonus |
+| 🔷 **Stops** | Spin the blue diamonds for Regi Balls, Honors Balls, Magna Cum Balls and Bagels |
+| 🥯 **Bagels** | Feed one before throwing to make the next catch easier |
 
 Each area has its own Regimon. Look for Owlgebra and Quizard inside Regis, Jesuitoad and Candlewick at
 St. Ignatius Loyola, Armorillo and Dendurtle at the Met, Squirrelio and Reservortex in Central Park,
@@ -39,5 +39,5 @@ To run it locally, serve the folder with any static server, for example `python 
 
 ---
 
-*A fan-made game. It is not affiliated with Regis High School, Nintendo, Niantic or The PokÃ©mon Company.
+*A fan-made game. It is not affiliated with Regis High School, Nintendo, Niantic or The Pokémon Company.
 All creatures are original.*
