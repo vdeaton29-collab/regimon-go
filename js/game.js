@@ -1,7 +1,7 @@
 // Regimon GO — map, spawns, stops, catching, Regidex.
 (() => {
   'use strict';
-  const { W, H, AVES, STREETS, STREET_END, RIVER_X, TYPES, RARITY, BALLS, ZONES, ZONE_HINTS, STOPS, ARENAS, TRAINER_NAMES, SPECIES } = window.RG;
+  const { W, H, AVES, STREETS, STREET_END, RIVER_X, PARK_END, TYPES, RARITY, BALLS, ZONES, ZONE_HINTS, STOPS, ARENAS, TRAINER_NAMES, SPECIES } = window.RG;
   const Art = window.RGArt, Music = window.RGMusic, Battle = window.RGBattle;
   const $ = s => document.querySelector(s);
   const rnd = (a, b) => a + Math.random() * (b - a);
@@ -18,6 +18,7 @@
     return {
       xp: 0, level: 1, items: { regi: 30, honors: 5, magna: 1, bagel: 5 },
       dex: {}, caught: [], cooldowns: {}, badges: {}, px: 1375, py: 822, intro: false, nextUid: 1,
+      rating: 1000, leagueW: 0, leagueL: 0, leagueBest: 1000,
     };
   }
   function load() {
@@ -42,28 +43,35 @@
   const inEll = (x, y, cx, cy, rx, ry) => ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 < 1;
   const inRect = (x, y, r) => x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3];
   const REGIS = [1150, 844, 1600, 1300], CHURCH = [1680, 344, 2100, 800];
-  const GUGG = [660, 2644, 1100, 3050], ASPHALT = [4100, 2644, 4440, 3300];
-  const SUBWAYS = [[2185, 1640], [3185, 1700]];
+  const GUGG = [660, 2644, 1100, 3050], ASPHALT = [4100, 2644, 4440, PARK_END];
+  const HEAVENLY = [660, 3094, 1100, 3500], COOPER = [660, 3544, 1100, 3950], JEWISH = [660, 3994, 1100, 4400];
+  const Y92 = [2150, 3994, 2600, 4400], ICC = [2660, 5794, 3100, 6200], RUPPERT = [3160, 3544, 3600, 3950];
+  const MARX = [3160, 5794, 3600, 6200], TENNIS = [130, 4840, 470, 5200];
+  const SUBWAYS = [[2185, 1640], [3185, 1700], [2185, 6180], [3185, 6180]];
+  const MILLROCK = [4905, 6040, 75, 120];
 
   function zoneAt(x, y) {
     if (x >= RIVER_X) return 'river';
-    if ((x >= 380 && x <= 600 && y >= 60 && y <= 740) || inRect(x, y, GUGG)) return 'museum';
+    if ((x >= 380 && x <= 600 && y >= 60 && y <= 740) || inRect(x, y, GUGG) || inRect(x, y, COOPER) || inRect(x, y, JEWISH)) return 'museum';
     if (inEll(x, y, 300, 1250, 238, 290) || inEll(x, y, 190, 668, 120, 48)) return 'water';
-    if (inRect(x, y, ASPHALT) || inEll(x, y, 300, 2700, 200, 170)) return 'sports';
-    if (x < 600 || (x >= STREET_END && y >= 844)) return 'park';
+    if (inRect(x, y, ASPHALT) || inEll(x, y, 300, 2700, 200, 170) || inRect(x, y, TENNIS) || inRect(x, y, MARX)) return 'sports';
+    if (inRect(x, y, Y92)) return 'music';
+    if (x < 600 || (x >= STREET_END && y >= 844 && y < PARK_END) || inRect(x, y, RUPPERT)) return 'park';
     if (inRect(x, y, REGIS)) return 'school';
-    if (inRect(x, y, CHURCH)) return 'church';
+    if (inRect(x, y, CHURCH) || inRect(x, y, HEAVENLY) || inRect(x, y, ICC)) return 'church';
     if (SUBWAYS.some(([sx, sy]) => hyp(x, y, sx, sy) < 220)) return 'subway';
     return 'street';
   }
   function zoneLabel(z, x, y) {
     switch (z) {
       case 'water': return y < 900 ? 'Turtle Pond' : 'The Reservoir';
-      case 'museum': return y > 2500 ? 'The Guggenheim' : 'The Met';
-      case 'park': return x > 4000 ? 'Carl Schurz Park' : 'Central Park';
-      case 'sports': return x > 4000 ? 'Asphalt Green' : 'Central Park Ballfields';
-      case 'subway': return x > 2600 ? '86th St · Q train' : '86th St · 4 5 6';
-      case 'street': return x > 2630 ? 'Yorkville' : 'Upper East Side';
+      case 'museum': return y > 3990 ? 'The Jewish Museum' : y > 3540 ? 'Cooper Hewitt' : y > 2500 ? 'The Guggenheim' : 'The Met';
+      case 'park': return x > 3000 && x < 3700 ? 'Ruppert Park' : x > 4000 ? 'Carl Schurz Park' : y > 3300 ? 'Central Park (North)' : 'Central Park';
+      case 'sports': return x > 4000 ? 'Asphalt Green' : x > 3000 ? 'Marx Brothers Playground' : y > 4500 ? 'Tennis Center' : 'Central Park Ballfields';
+      case 'subway': return `${y > 5000 ? '96th' : '86th'} St · ${x > 2600 ? 'Q train' : '4 5 6'}`;
+      case 'church': return x < 1200 ? 'Church of the Heavenly Rest' : y > 5000 ? 'Islamic Cultural Center' : 'St. Ignatius Loyola';
+      case 'river': return inEll(x, y, ...MILLROCK) ? 'Mill Rock Island' : 'The East River';
+      case 'street': return y > PARK_END && x < 2600 ? 'Carnegie Hill' : x > 2630 ? 'Yorkville' : 'Upper East Side';
       default: return ZONES[z];
     }
   }
@@ -87,12 +95,13 @@
   for (let i = 0; i < STREETS.length; i++) YS.push([STREETS[i][1], i + 1 < STREETS.length ? STREETS[i + 1][0] : H]);
   const XS = [];
   for (let i = 0; i + 1 < AVES.length; i++) XS.push([AVES[i][1], AVES[i + 1][0]]);
-  const streetEnd = y0 => (y0 < 844 ? RIVER_X : STREET_END);
+  const streetEnd = y0 => (y0 < 844 || y0 >= PARK_END ? RIVER_X : STREET_END);
 
-  // Draws the entire static map. Called once per tile (with a translate) and once for the overview map,
-  // so it must be deterministic: same seed, same drawing order every time.
-  function drawWorld(g) {
+  // Draws the entire static map. Called once per tile (with a translate and that tile's `view` rect, used to skip
+  // small off-tile details) and once for the overview map, so it must be deterministic: same seed, same R() calls.
+  function drawWorld(g, view) {
     const R = mulberry32(1914);
+    const vis = (x, y, m = 40) => !view || (x > view[0] - m && x < view[2] + m && y > view[1] - m && y < view[3] + m);
     const ell = (x, y, rx, ry, fill) => { g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); g.fillStyle = fill; g.fill(); };
     const label = (txt, x, y, size, color, bg) => {
       g.font = `700 ${size}px "Trebuchet MS", sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
@@ -100,8 +109,10 @@
       g.fillStyle = color; g.fillText(txt, x, y);
     };
     const tree = (x, y, r) => {
+      const col = R() < 0.5 ? '#3f8f3a' : '#4d9e44';
+      if (!vis(x, y)) return;
       ell(x + 3, y + 4, r, r * 0.8, 'rgba(0,0,0,.15)');
-      ell(x, y, r, r, R() < 0.5 ? '#3f8f3a' : '#4d9e44');
+      ell(x, y, r, r, col);
       ell(x - r * 0.3, y - r * 0.3, r * 0.45, r * 0.45, 'rgba(255,255,255,.12)');
     };
     const awning = (x, y, n, a, b) => { for (let i = 0; i < n; i++) { g.fillStyle = i % 2 ? a : b; g.fillRect(x + i * 11, y, 11, 14); } };
@@ -110,9 +121,11 @@
 
     // ---- Central Park ----
     g.fillStyle = '#78bb5e'; g.fillRect(0, 0, 600, H);
-    for (let i = 0; i < 4600; i++) {
-      g.fillStyle = R() < 0.5 ? 'rgba(255,255,255,.06)' : 'rgba(0,70,0,.07)';
-      g.fillRect(R() * 600, R() * H, 4, 4);
+    for (let i = 0; i < 9200; i++) {
+      const light = R() < 0.5, x = R() * 600, y = R() * H;
+      if (!vis(x, y, 4)) continue;
+      g.fillStyle = light ? 'rgba(255,255,255,.06)' : 'rgba(0,70,0,.07)';
+      g.fillRect(x, y, 4, 4);
     }
     ell(250, 450, 175, 125, '#93d077');
     g.strokeStyle = '#e8dcbc'; g.lineWidth = 12; g.lineCap = 'round';
@@ -129,6 +142,18 @@
     path([60, 1000, 20, 1300, 40, 1600, 60, 1900, 30, 2200, 10, 2500, 60, 2800, 100, 3100, 60, 3300]);
     path([600, 2060, 450, 2080, 300, 2100, 150, 2150, 30, 2200]);
     path([600, 3070, 500, 3000, 420, 2900, 360, 2860, 300, 2870]);
+    path([60, 3300, 120, 3700, 60, 4100, 20, 4500, 90, 4900, 40, 5400, 80, 5900, 30, 6300, 60, 6600]);
+    path([600, 3522, 480, 3700, 540, 4000, 560, 4450, 500, 4800, 540, 5300, 520, 5800, 560, 6230, 600, 6230]);
+    path([60, 4100, 250, 4200, 420, 4150, 560, 4450]);
+    path([40, 5400, 200, 5300, 320, 5360, 470, 5250, 540, 5300]);
+    // Tennis Center: clay courts
+    g.fillStyle = '#d8cdb2'; g.fillRect(TENNIS[0], TENNIS[1], TENNIS[2] - TENNIS[0], TENNIS[3] - TENNIS[1]);
+    for (let cx = TENNIS[0] + 12; cx < TENNIS[2] - 60; cx += 78) for (let cy = TENNIS[1] + 14; cy < TENNIS[3] - 90; cy += 112) {
+      g.fillStyle = '#c96f4a'; g.fillRect(cx, cy, 66, 100);
+      g.strokeStyle = 'rgba(255,255,255,.85)'; g.lineWidth = 2; g.strokeRect(cx + 5, cy + 6, 56, 88);
+      g.beginPath(); g.moveTo(cx + 5, cy + 50); g.lineTo(cx + 61, cy + 50); g.stroke();
+    }
+    label('Tennis Center', 300, TENNIS[3] + 16, 14, 'rgba(40,90,30,.8)');
     // Reservoir + running track
     ell(300, 1250, 238, 290, '#d8c7a0');
     ell(300, 1250, 222, 274, '#4f9fd8');
@@ -160,10 +185,11 @@
       g.fillStyle = '#fff'; for (const [dx, dy] of [[0, -42], [42, 0], [0, 42], [-42, 0]]) g.fillRect(bx + dx - 3, by + dy - 3, 6, 6);
     }
     label('Ballfields', 300, 2870, 14, 'rgba(40,90,30,.75)');
-    for (let i = 0; i < 850; i++) {
+    for (let i = 0; i < 1700; i++) {
       const x = 10 + R() * 575, y = R() * H;
       if (inEll(x, y, 300, 1250, 252, 305) || inEll(x, y, 190, 668, 140, 64) || inEll(x, y, 250, 450, 215, 162)) continue;
       if (inEll(x, y, 300, 2700, 222, 190)) continue;
+      if (x > TENNIS[0] - 15 && x < TENNIS[2] + 15 && y > TENNIS[1] - 15 && y < TENNIS[3] + 30) continue;
       if (x > 300 && x < 370 && y > 550 && y < 640) continue;
       if (x > 360 && y > 45 && y < 755) continue;
       tree(x, y, 9 + R() * 9);
@@ -188,11 +214,19 @@
 
     // ---- city blocks ----
     const BROWN = ['#b07a62', '#9c6b58', '#c4ab8c', '#a8927a', '#8f7d6d', '#c98f6f', '#b9a58a', '#a3765f', '#b5b0a6', '#9aa0a8'];
-    const special = (x0, y0) => (x0 === 1150 && y0 === 844) || (x0 === 1680 && y0 === 344) || (x0 === 1680 && y0 === 0) ||
-      (x0 === 660 && y0 === 2644) || (x0 === 4100 && y0 >= 2644);
+    const SPECIAL = [REGIS, CHURCH, [1680, 0], GUGG, HEAVENLY, COOPER, JEWISH, Y92, ICC, RUPPERT, MARX];
+    const special = (x0, y0) => SPECIAL.some(r => r[0] === x0 && r[1] === y0) || (x0 === 4100 && y0 >= 2644 && y0 < PARK_END);
     const cols = [...XS, [STREET_END, RIVER_X]];
     for (const [x0, x1] of cols) for (const [y0, y1] of YS) {
-      if (x0 === STREET_END && y0 >= 844) continue; // Carl Schurz Park
+      if (x0 === STREET_END && y0 >= 844 && y0 < PARK_END) continue; // Carl Schurz Park
+      if (view && (x1 < view[0] - 40 || x0 > view[2] + 40 || y1 < view[1] - 40 || y0 > view[3] + 40)) {
+        // off-tile: still advance the random sequence exactly as drawing would
+        if (special(x0, y0)) continue;
+        const ix0 = x0 + 14, ix1 = x1 - 14;
+        for (let row = 0; row < 2; row++) { let x = ix0; while (x < ix1 - 10) { const w = Math.min(ix1 - x, 50 + R() * 80); R(); x += w; } }
+        for (let x = x0 + 30; x < x1 - 20; x += 74) { R(); if (y1 < H) R(); }
+        continue;
+      }
       g.fillStyle = '#d7d0c1'; g.fillRect(x0, y0, x1 - x0, y1 - y0);
       g.strokeStyle = '#bdb5a4'; g.lineWidth = 2; g.strokeRect(x0 + 1, y0 + 1, x1 - x0 - 2, y1 - y0 - 2);
       if (special(x0, y0)) continue;
@@ -266,15 +300,59 @@
     g.strokeRect(4134, 2678, 272, 338);
     g.beginPath(); g.moveTo(4134, 2847); g.lineTo(4406, 2847); g.stroke();
     g.beginPath(); g.arc(4270, 2847, 40, 0, 7); g.stroke();
-    g.fillStyle = '#c96f4a'; g.fillRect(4114, 3108, 312, 178);
-    g.fillStyle = '#5ab2e8'; g.fillRect(4140, 3130, 260, 130);
+    g.fillStyle = '#c96f4a'; g.fillRect(4114, 3108, 312, 378);
+    g.fillStyle = '#5ab2e8'; g.fillRect(4140, 3140, 260, 210);
     g.strokeStyle = 'rgba(255,255,255,.7)'; g.lineWidth = 2;
-    for (let y = 3150; y < 3260; y += 20) { g.beginPath(); g.moveTo(4145, y); g.lineTo(4395, y); g.stroke(); }
+    for (let y = 3165; y < 3350; y += 26) { g.beginPath(); g.moveTo(4145, y); g.lineTo(4395, y); g.stroke(); }
+    label('POOL', 4270, 3420, 13, '#fff', 'rgba(20,60,90,.5)');
     label('ASPHALT GREEN', 4270, 2700, 15, '#fff', 'rgba(20,60,30,.6)');
 
+    // ---- Carnegie Hill & north: Museum Mile, 92NY, Ruppert Park, 96th St ----
+    const bldg = (r, base, top) => { g.fillStyle = base; g.fillRect(r[0] + 14, r[1] + 14, r[2] - r[0] - 28, r[3] - r[1] - 28); g.fillStyle = top; g.fillRect(r[0] + 22, r[1] + 22, r[2] - r[0] - 44, r[3] - r[1] - 44); };
+    // Church of the Heavenly Rest
+    bldg(HEAVENLY, '#8f8676', '#c2b9a6');
+    g.fillStyle = '#a79d88'; g.fillRect(720, 3180, 300, 130); g.fillStyle = '#8a806d'; g.fillRect(700, 3160, 60, 60);
+    g.fillStyle = '#f2c14e'; g.fillRect(726, 3170, 6, 36); g.fillRect(716, 3180, 26, 6);
+    label('Heavenly Rest', 880, 3440, 14, '#3b2f5c', 'rgba(255,253,247,.8)');
+    // Cooper Hewitt (Carnegie mansion + garden)
+    bldg(COOPER, '#7a5c48', '#a47a5f');
+    g.fillStyle = '#8fce74'; g.fillRect(690, 3780, 380, 140);
+    for (let i = 0; i < 9; i++) { const x = 710 + i * 42, y = 3800 + (i % 2) * 60; ell(x, y, 11, 11, i % 2 ? '#3f8f3a' : '#4d9e44'); }
+    g.fillStyle = '#e8dcc6'; for (let x = 700; x < 1060; x += 24) for (let y = 3570; y < 3760; y += 26) g.fillRect(x, y, 12, 9);
+    label('COOPER HEWITT', 880, 3665, 16, '#3a2a1f', 'rgba(255,253,247,.85)');
+    // The Jewish Museum
+    bldg(JEWISH, '#9a9486', '#d6d0c2');
+    g.fillStyle = '#b8b1a0'; for (let x = 700; x < 1060; x += 30) g.fillRect(x, 4030, 14, 330);
+    label('The Jewish Museum', 880, 4200, 15, '#3b2f5c', 'rgba(255,253,247,.85)');
+    // 92NY
+    bldg(Y92, '#5b4a7a', '#7c68a3');
+    g.fillStyle = '#f2c14e'; g.fillRect(2190, 4010, 370, 20);
+    for (let x = 2196; x < 2560; x += 14) { g.fillStyle = (x / 14) % 2 < 1 ? '#fff7cc' : '#f2c14e'; g.beginPath(); g.arc(x, 4020, 3, 0, 7); g.fill(); }
+    label('92NY', 2375, 4200, 26, '#fff', 'rgba(20,10,40,.45)');
+    label('♪ tonight: Maestro Lin ♪', 2375, 4240, 12, '#fde68a');
+    // Ruppert Park
+    g.fillStyle = '#78bb5e'; g.fillRect(RUPPERT[0] + 14, RUPPERT[1] + 14, RUPPERT[2] - RUPPERT[0] - 28, RUPPERT[3] - RUPPERT[1] - 28);
+    g.strokeStyle = '#e8dcbc'; g.lineWidth = 10;
+    path([3180, 3600, 3300, 3700, 3380, 3740, 3480, 3800, 3580, 3900]);
+    for (let i = 0; i < 40; i++) tree(3190 + R() * 390, 3570 + R() * 360, 10 + R() * 6);
+    label('Ruppert Park', 3380, 3930, 13, 'rgba(30,70,25,.8)');
+    // Marx Brothers Playground
+    g.fillStyle = '#6b7280'; g.fillRect(MARX[0] + 14, MARX[1] + 14, MARX[2] - MARX[0] - 28, MARX[3] - MARX[1] - 28);
+    for (const [x, y] of [[3190, 5820], [3390, 5820], [3190, 6010], [3390, 6010]]) {
+      g.fillStyle = '#2f6fb3'; g.fillRect(x, y, 180, 160);
+      g.strokeStyle = 'rgba(255,255,255,.8)'; g.lineWidth = 2; g.strokeRect(x + 8, y + 8, 164, 144);
+      g.beginPath(); g.arc(x + 90, y + 80, 22, 0, 7); g.stroke();
+    }
+    label('Marx Brothers Playground', 3380, 6190, 12, '#fff', 'rgba(0,0,0,.35)');
+    // Islamic Cultural Center
+    bldg(ICC, '#b8ad97', '#d9d0bd');
+    ell(2880, 6000, 90, 90, '#2a9d8f'); ell(2880, 6000, 64, 64, '#48b5a7'); ell(2860, 5980, 20, 20, 'rgba(255,255,255,.25)');
+    g.fillStyle = '#e8e2d4'; g.fillRect(3030, 5830, 28, 330); ell(3044, 5830, 16, 16, '#2a9d8f');
+    label('Islamic Cultural Center', 2880, 6150, 12, '#3b2f5c', 'rgba(255,253,247,.8)');
+
     // ---- Carl Schurz Park + Gracie Mansion ----
-    g.fillStyle = '#78bb5e'; g.fillRect(STREET_END, 844, RIVER_X - STREET_END, H - 844);
-    for (let i = 0; i < 900; i++) { g.fillStyle = R() < 0.5 ? 'rgba(255,255,255,.06)' : 'rgba(0,70,0,.07)'; g.fillRect(STREET_END + R() * 310, 844 + R() * (H - 844), 4, 4); }
+    g.fillStyle = '#78bb5e'; g.fillRect(STREET_END, 844, RIVER_X - STREET_END, PARK_END - 844);
+    for (let i = 0; i < 900; i++) { g.fillStyle = R() < 0.5 ? 'rgba(255,255,255,.06)' : 'rgba(0,70,0,.07)'; g.fillRect(STREET_END + R() * 310, 844 + R() * (PARK_END - 844), 4, 4); }
     g.fillStyle = '#e2d6b4'; g.fillRect(4740, 844, 60, H - 844);
     g.fillStyle = '#6b6f78'; g.fillRect(4796, 844, 4, H - 844);
     g.strokeStyle = '#e8dcbc'; g.lineWidth = 10;
@@ -286,7 +364,7 @@
     g.fillStyle = '#2b4a2f'; for (let x = 4585; x < 4700; x += 16) g.fillRect(x, 2665, 8, 12);
     label('Gracie Mansion', 4640, 2765, 12, '#5b5346', 'rgba(255,253,247,.8)');
     for (let i = 0; i < 170; i++) {
-      const x = STREET_END + 12 + R() * 240, y = 860 + R() * (H - 870);
+      const x = STREET_END + 12 + R() * 240, y = 860 + R() * (PARK_END - 880);
       if (x > 4550 && x < 4720 && y > 2620 && y < 2860) continue;
       if (x > 4540 && x < 4660 && y > 1090 && y < 1220) continue;
       tree(x, y, 9 + R() * 8);
@@ -310,6 +388,13 @@
     g.save(); g.translate(4900, 3050); g.rotate(-Math.PI / 2);
     label('HELL GATE', 0, 0, 16, 'rgba(255,255,255,.55)');
     g.restore();
+    // Mill Rock Island
+    ell(MILLROCK[0], MILLROCK[1], MILLROCK[2] + 8, MILLROCK[3] + 8, '#c9b98f');
+    ell(MILLROCK[0], MILLROCK[1], MILLROCK[2], MILLROCK[3], '#6aa653');
+    for (let i = 0; i < 16; i++) tree(MILLROCK[0] - 50 + R() * 100, MILLROCK[1] - 90 + R() * 150, 8 + R() * 5);
+    label('Mill Rock', MILLROCK[0], MILLROCK[1] + MILLROCK[3] + 26, 13, 'rgba(255,255,255,.85)');
+    g.fillStyle = '#e2d6b4'; g.fillRect(4740, PARK_END, 60, H - PARK_END);
+    g.fillStyle = '#6b6f78'; g.fillRect(4796, PARK_END, 4, H - PARK_END);
 
     // ---- roads ----
     g.fillStyle = '#50535e';
@@ -354,6 +439,8 @@
     };
     subway(2185, 1615, '86 St  4 5 6');
     subway(3185, 1745, '86 St  Q');
+    subway(2185, 6190, '96 St  6');
+    subway(3185, 6190, '96 St  Q');
     awning(2168, 972, 8, '#fff', '#c62828'); label('DELI', 2215, 1025, 13, '#fff', '#c62828');
     awning(1030, 544, 6, '#f5efe0', '#2e7d4f'); label('CAFÉ', 1063, 590, 12, '#fff', '#2e7d4f');
     awning(3355, 2200, 8, '#fff', '#1d4ed8'); label('BAKERY', 3400, 2250, 12, '#fff', '#1d4ed8');
@@ -370,7 +457,7 @@
       cv = document.createElement('canvas'); cv.width = TILE; cv.height = TILE;
       const g = cv.getContext('2d');
       g.translate(-tx * TILE, -ty * TILE);
-      drawWorld(g);
+      drawWorld(g, [tx * TILE, ty * TILE, (tx + 1) * TILE, (ty + 1) * TILE]);
       tiles.set(key, cv);
     }
     return cv;
@@ -796,7 +883,7 @@
     const first = !S.badges[a.id];
     Battle.challenge({
       name: a.leader, title: `${a.title} · ${a.name}`, quote: a.quote, team: a.team, color: a.color, icon: first ? '⚔️' : '🏆',
-      badge: !first, tier: a.tier, levelMult: 0.8 + a.tier * 0.05, levelAdd: a.tier, smart: 0.6 + a.tier * 0.06,
+      badge: !first, tier: a.tier, levelMult: 1, levelAdd: a.tier, smart: clamp(0.62 + a.tier * 0.045, 0, 1),
       winQuote: 'Train harder and come back. The arena will be here.',
       onResult: win => {
         const out = [];
@@ -816,7 +903,7 @@
   function challengeNPC(n) {
     Battle.challenge({
       name: n.name, title: 'Wandering trainer', quote: pick(NPC_QUOTES), team: n.team, color: n.look.blazer, icon: '🎒',
-      tier: 1, levelMult: 0.85, levelAdd: -1, smart: 0.5,
+      tier: 1, levelMult: 1, levelAdd: 0, smart: 0.55,
       onResult: win => {
         npcs = npcs.filter(x => x !== n);
         if (win) { S.items.regi += 3; S.items.bagel += 1; addXP(200); save(); return ['+200 XP', '+3 Regi Balls · +1 Bagel']; }
@@ -918,6 +1005,19 @@
         c.beginPath(); c.moveTo(0, hz + 30); c.lineTo(w, hz + 30); c.stroke();
         c.beginPath(); c.ellipse(w / 2, hz + (h - hz) * 0.45, w * 0.22, (h - hz) * 0.18, 0, 0, 7); c.stroke();
         break;
+      case 'music': {
+        c.fillStyle = grad(0, hz, '#2e1065', '#5b21b6'); c.fillRect(0, 0, w, hz);
+        for (let i = 0; i < 7; i++) {
+          const x = (i + 0.5) * w / 7;
+          const g2 = c.createLinearGradient(x, 0, x + (i - 3) * 30, hz);
+          g2.addColorStop(0, 'rgba(253,230,138,.55)'); g2.addColorStop(1, 'rgba(253,230,138,0)');
+          c.fillStyle = g2; c.beginPath(); c.moveTo(x - 8, 0); c.lineTo(x + 8, 0); c.lineTo(x + (i - 3) * 30 + 70, hz); c.lineTo(x + (i - 3) * 30 - 70, hz); c.closePath(); c.fill();
+        }
+        c.fillStyle = '#7f1d1d'; c.fillRect(0, 0, w * 0.08, hz); c.fillRect(w * 0.92, 0, w * 0.08, hz);
+        c.fillStyle = grad(hz, h, '#7c4a24', '#4a2a12'); c.fillRect(0, hz, w, h - hz);
+        c.strokeStyle = 'rgba(0,0,0,.15)'; c.lineWidth = 2; for (let x = 0; x < w; x += 46) { c.beginPath(); c.moveTo(x, hz); c.lineTo(x, h); c.stroke(); }
+        break;
+      }
       case 'river':
       case 'water':
         c.fillStyle = grad(0, hz * 0.8, '#7fc8f8', '#e4f5ff'); c.fillRect(0, 0, w, hz * 0.8);
@@ -1381,9 +1481,75 @@
         <div><b>${d.seen}</b><span>Seen</span></div>
       </div>
       <p class="sub">📍 Found near: ${s.habitat.map(z => ZONES[z]).join(', ')}</p>
+      ${d.caught ? movesHTML(s) : ''}
       <div class="row"><button class="ghost" id="sp-back">← Back</button></div>
     </div>`);
     $('#sp-back').onclick = back;
+  }
+  function movesHTML(s) {
+    const mv = Battle.movesFor(s);
+    const row = (m, kind, meta) => `<div class="mv" style="--mt:${TYPES[m.type]}"><span class="dot"></span><b>${m.name}${m.sig ? ' ★' : ''}</b><small>${kind} · ${m.type} · ${meta}</small></div>`;
+    return `<div class="moves"><h3>Battle moves</h3>
+      ${row(mv.fast, 'Fast', `Power ${mv.fast.power} · +${mv.fast.energy}⚡`)}
+      ${mv.charged.map(c => row(c, c.sig ? 'Signature' : 'Special', `Power ${c.power} · ${c.cost}⚡${c.effect ? ' · ' + Battle.EFFECT_TEXT[c.effect] : ''}`)).join('')}
+    </div>`;
+  }
+
+  // ---------------- Battle League (ranked) ----------------
+  const RANKS = [[0, 'Freshman', '🟤'], [1100, 'Sophomore', '⚪'], [1250, 'Junior', '🟢'], [1400, 'Senior', '🔵'],
+    [1600, 'Varsity', '🟣'], [1800, 'Captain', '🟠'], [2000, 'Valedictorian', '👑']];
+  const rankOf = r => RANKS.filter(k => r >= k[0]).pop();
+  function showLeague() {
+    if (mode !== 'map') return;
+    const r = S.rating, rk = rankOf(r), next = RANKS.find(k => k[0] > r);
+    const pct = next ? (r - rk[0]) / (next[0] - rk[0]) * 100 : 100;
+    openModal(`<div class="league">
+      <div class="lg-rank">${rk[2]}</div>
+      <h2>${rk[1]}</h2>
+      <p class="sub">Battle League rating <b>${r}</b>${next ? ` · ${next[0] - r} points to ${next[1]}` : ' · top rank!'}</p>
+      <div class="progress"><div style="width:${pct}%"></div></div>
+      <div class="stats">
+        <div><b>${S.leagueW}</b><span>Wins</span></div>
+        <div><b>${S.leagueL}</b><span>Losses</span></div>
+        <div><b>${S.leagueBest}</b><span>Best rating</span></div>
+      </div>
+      <p class="sub">Ranked battles against AI trainers near your rating. Winning earns rating points; losing costs them. Opponents get stronger and smarter as you climb.</p>
+      <div class="ranks">${RANKS.map(k => `<span class="${r >= k[0] ? 'got' : ''}">${k[2]} ${k[1]} <small>${k[0]}</small></span>`).join('')}</div>
+      <div class="row"><button class="primary" id="lg-go">⚔️ Find a ranked battle</button></div>
+    </div>`);
+    $('#lg-go').onclick = () => { closeModal(); leagueBattle(); };
+  }
+  function leagueBattle() {
+    const opp = Math.max(800, Math.round(S.rating + rnd(-60, 90)));
+    const f = clamp((opp - 1000) / 1000, -0.2, 1.2);
+    const pool = SPECIES.filter(s => s.rarity < 5 || opp >= 1600);
+    const team = [];
+    while (team.length < 3) {
+      const w = pool.map(s => (s.rarity >= 3 ? 1 + f * 2 : 1.5 - f * 0.5));
+      let x = Math.random() * w.reduce((a, b) => a + b, 0), i = 0;
+      while ((x -= w[i]) > 0) i++;
+      if (!team.includes(pool[i].id)) team.push(pool[i].id);
+    }
+    const name = pick(TRAINER_NAMES);
+    Battle.challenge({
+      name: `${name}`, title: `Ranked opponent · ${rankOf(opp)[1]} · ${opp}`, quote: pick(NPC_QUOTES), team, color: '#b91c1c', icon: rankOf(opp)[2],
+      tier: 3 + Math.round(f * 4), levelMult: 1 + f * 0.12, levelAdd: Math.round(f * 5), smart: clamp(0.5 + f * 0.45, 0.45, 0.98),
+      onResult: win => {
+        const exp = 1 / (1 + Math.pow(10, (opp - S.rating) / 400));
+        const delta = Math.round(32 * ((win ? 1 : 0) - exp)) || (win ? 1 : -1);
+        const before = rankOf(S.rating)[1];
+        S.rating = Math.max(0, S.rating + delta);
+        S.leagueBest = Math.max(S.leagueBest, S.rating);
+        if (win) S.leagueW++; else S.leagueL++;
+        const out = [`${delta >= 0 ? '+' : ''}${delta} rating → ${S.rating}`];
+        const after = rankOf(S.rating);
+        if (after[1] !== before && delta > 0) { out.push(`${after[2]} Promoted to ${after[1]}!`); setTimeout(() => { Music.sfx('rankup'); banner(`${after[1].toUpperCase()}!`, 'New Battle League rank'); }, 1500); }
+        if (win) { addXP(250); S.items.regi += 4; S.items.honors += 1; out.push('+250 XP · +4 Regi Balls · +1 Honors Ball'); }
+        else { addXP(50); out.push('+50 XP'); }
+        save();
+        return out;
+      },
+    });
   }
 
   function showBox(sort = 'recent') {
@@ -1453,7 +1619,8 @@
         <li>⚾ <b>Throw</b> — swipe the ball up at it. Land it inside the shrinking colored ring for a Nice / Great / Excellent bonus.</li>
         <li>🔷 <b>Stops</b> — tap the spinning blue diamonds near you for Regi Balls and Bagels.</li>
         <li>🗺️ <b>Explore</b> — every area has its own Regimon: Water types in the Reservoir, River types in the East River, Athletic types at Asphalt Green, and legends at Regis, the church, and Gracie Mansion. Tap the map button to see the whole neighborhood and walk anywhere.</li>
-        <li>⚔️ <b>Battle</b> — tap an arena tower or a student with a <b>!</b> to battle with up to 3 Regimon. Each has 4 moves; pick moves the foe is weak to for super-effective damage. Win badges from all 6 arena leaders.</li>
+        <li>⚔️ <b>Battle</b> — tap an arena tower or a student with a <b>!</b>. Battles are real-time: <b>hold</b> to fast-attack and build ⚡ energy, then fire a special attack when its button lights up and time the meter for extra power. Each side has 2 🛡️ shields to block special attacks. Beat all 9 arena leaders.</li>
+        <li>🏆 <b>Battle League</b> — ranked battles against AI trainers. Win rating points to climb from Freshman to Valedictorian.</li>
         <li>🔊 <b>Music</b> — tap the speaker button to turn the music on or off.</li>
       </ul>
       <button class="primary" id="help-go">${first ? "Let's go!" : 'Got it'}</button>
@@ -1465,6 +1632,7 @@
   $('#btn-dex').onclick = showDex;
   $('#btn-box').onclick = () => showBox();
   $('#btn-bag').onclick = showBag;
+  $('#btn-league').onclick = showLeague;
 
   // ---------------- main loop ----------------
   function seedSpawns() {
@@ -1489,6 +1657,8 @@
   const PLACES = [
     ['Central Park', 300, 1900], ['Regis', 1375, 1070], ['The Met', 490, 400], ['Guggenheim', 880, 2840], ['Yorkville', 3400, 2400],
     ['St. Ignatius', 1890, 570], ['Carl Schurz Park', 4640, 2000], ['East River', 4740, 420], ['Asphalt Green', 4270, 2960],
+    ['Carnegie Hill', 1900, 4650], ['Museum Mile', 880, 3770], ['92NY', 2375, 4200], ['Tennis Center', 300, 5020],
+    ['Ruppert Park', 3380, 3740], ['96th Street', 2640, 6230], ['Mill Rock', 4780, 6040], ['Yorkville North', 3900, 4700],
   ];
   function showOverview() {
     if (mode !== 'map') return;
@@ -1496,7 +1666,7 @@
       <p class="sub">Tap anywhere to walk there. ⚔️ arenas · 🏆 badges won · 🔷 stops</p>
       <div class="ov-wrap"><canvas id="ov-canvas"></canvas></div>`);
     const cv = $('#ov-canvas'), wrap = cv.parentElement;
-    const cssW = wrap.clientWidth, s = cssW / W, cssH = H * s;
+    const cssW = Math.min(wrap.clientWidth, innerHeight * 0.62 * W / H), s = cssW / W, cssH = H * s;
     cv.style.width = cssW + 'px'; cv.style.height = cssH + 'px';
     cv.width = cssW * dpr; cv.height = cssH * dpr;
     const g = cv.getContext('2d'); g.scale(dpr, dpr);
@@ -1505,8 +1675,9 @@
     for (const st of STOPS) { g.fillStyle = (S.cooldowns[st.id] || 0) > Date.now() ? '#b36bd9' : '#2f9df4'; g.beginPath(); g.arc(st.x * s, st.y * s, 3, 0, 7); g.fill(); }
     g.font = '700 11px "Trebuchet MS", sans-serif';
     for (const [n, x, y] of PLACES) {
-      g.lineWidth = 3; g.strokeStyle = 'rgba(255,255,255,.85)'; g.strokeText(n, x * s, y * s);
-      g.fillStyle = '#14204a'; g.fillText(n, x * s, y * s);
+      const half = g.measureText(n).width / 2 + 3, lx = clamp(x * s, half, cssW - half);
+      g.lineWidth = 3; g.strokeStyle = 'rgba(255,255,255,.85)'; g.strokeText(n, lx, y * s);
+      g.fillStyle = '#14204a'; g.fillText(n, lx, y * s);
     }
     g.font = '15px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
     for (const a of ARENAS) g.fillText(S.badges[a.id] ? '🏆' : '⚔️', a.x * s, a.y * s - 6);

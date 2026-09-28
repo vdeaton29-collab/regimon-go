@@ -184,9 +184,40 @@ window.RGMusic = (() => {
     },
   };
   function sfx(name) {
-    if (!ac || ac.state !== 'running' || muted) return;
+    if (!ac || ac.state !== 'running' || muted || !SFX[name]) return;
     SFX[name](ac.currentTime + 0.01);
   }
+
+  // Attack sounds per type. `big` = special (charged) attack: longer and louder.
+  const TYPE_SFX = {
+    Fire: (t, k) => { noise(t, 0.5 * k, 0.35, sfxBus, 'lowpass', 600, 2400); noise(t + 0.1, 0.4 * k, 0.2, sfxBus, 'bandpass', 3000, 900); if (k > 1) tone(90, t, 0.7, 'sawtooth', 0.1, sfxBus, 40); },
+    Water: (t, k) => { noise(t, 0.45 * k, 0.3, sfxBus, 'bandpass', 2500, 300); for (let i = 0; i < 3 * k; i++) tone(500 + Math.random() * 700, t + i * 0.06, 0.08, 'sine', 0.08, sfxBus, 1400); },
+    Electric: (t, k) => { for (let i = 0; i < 6 * k; i++) tone(200 + Math.random() * 1600, t + i * 0.035, 0.04, 'square', 0.08, sfxBus); noise(t, 0.12 * k, 0.25, sfxBus, 'highpass', 4000); },
+    Grass: (t, k) => { for (let i = 0; i < 4 * k; i++) noise(t + i * 0.06, 0.07, 0.18, sfxBus, 'highpass', 2500 + Math.random() * 3000); },
+    Ghost: (t, k) => { tone(700, t, 0.5 * k, 'sine', 0.12, sfxBus, 180); tone(710, t, 0.5 * k, 'triangle', 0.08, sfxBus, 200); },
+    Dark: (t, k) => { tone(110, t, 0.45 * k, 'sawtooth', 0.14, sfxBus, 45); noise(t, 0.3 * k, 0.15, sfxBus, 'lowpass', 500); },
+    Spirit: (t, k) => ['C6', 'E6', 'G6', 'C7'].slice(0, 2 + k).forEach((n, i) => tone(mtof(midi(n)), t + i * 0.07, 0.4, 'sine', 0.1, sfxBus)),
+    Royal: (t, k) => { ['C5', 'G5', 'C6', 'E6'].slice(0, 2 + k).forEach((n, i) => tone(mtof(midi(n)), t + i * 0.08, 0.3, 'square', 0.07, sfxBus)); if (k > 1) noise(t + 0.3, 0.3, 0.2, sfxBus, 'lowpass', 1500); },
+    Steel: (t, k) => { tone(1320, t, 0.3 * k, 'square', 0.07, sfxBus); tone(1870, t, 0.25 * k, 'triangle', 0.08, sfxBus); noise(t, 0.08, 0.25, sfxBus, 'highpass', 5000); },
+    Brainy: (t, k) => [880, 1175, 1480, 1760].slice(0, 2 + k).forEach((f, i) => tone(f, t + i * 0.05, 0.06, 'square', 0.06, sfxBus)),
+    Classic: (t, k) => [660, 880, 990].slice(0, 1 + k).forEach((f, i) => tone(f, t + i * 0.08, 0.12, 'triangle', 0.1, sfxBus)),
+    Flying: (t, k) => noise(t, 0.4 * k, 0.28, sfxBus, 'bandpass', 400, 3000),
+    Bug: (t, k) => { tone(130, t, 0.35 * k, 'sawtooth', 0.07, sfxBus, 160); tone(135, t, 0.35 * k, 'sawtooth', 0.07, sfxBus, 150); },
+    Ancient: (t, k) => { noise(t, 0.5 * k, 0.35, sfxBus, 'lowpass', 300, 80); tone(70, t, 0.4 * k, 'sine', 0.2, sfxBus, 35); },
+    Athletic: (t, k) => { tone(160, t, 0.12, 'sine', 0.35, sfxBus, 50); noise(t, 0.1, 0.3, sfxBus, 'lowpass', 2000); if (k > 1) tone(140, t + 0.15, 0.15, 'sine', 0.35, sfxBus, 40); },
+    Normal: (t, k) => { tone(150, t, 0.12, 'sine', 0.3, sfxBus, 60); noise(t, 0.1, 0.2, sfxBus, 'lowpass', 1500); },
+    Dragon: (t, k) => { tone(220, t, 0.6 * k, 'sawtooth', 0.12, sfxBus, 55); noise(t, 0.6 * k, 0.25, sfxBus, 'lowpass', 900, 150); if (k > 1) tone(330, t, 0.9, 'square', 0.05, sfxBus, 70); },
+    Ice: (t, k) => { for (let i = 0; i < 4 * k; i++) tone(1800 + Math.random() * 1500, t + i * 0.05, 0.12, 'sine', 0.07, sfxBus); noise(t, 0.3 * k, 0.12, sfxBus, 'highpass', 6000); },
+  };
+  function attack(type, big) {
+    if (!ac || ac.state !== 'running' || muted) return;
+    (TYPE_SFX[type] || TYPE_SFX.Normal)(ac.currentTime + 0.01, big ? 2 : 1);
+  }
+  SFX.charge = t => { tone(200, t, 0.7, 'sawtooth', 0.06, sfxBus, 1200); noise(t, 0.7, 0.1, sfxBus, 'bandpass', 300, 4000); };
+  SFX.shield = t => { ['E5', 'B5', 'E6'].forEach((n, i) => tone(mtof(midi(n)), t + i * 0.04, 0.35, 'triangle', 0.1, sfxBus)); noise(t, 0.3, 0.15, sfxBus, 'highpass', 2000); };
+  SFX.ready = t => { tone(1175, t, 0.08, 'square', 0.06, sfxBus); tone(1568, t + 0.08, 0.12, 'square', 0.06, sfxBus); };
+  SFX.excellent = t => ['G5', 'C6', 'E6', 'G6'].forEach((n, i) => tone(mtof(midi(n)), t + i * 0.05, 0.12, 'square', 0.07, sfxBus));
+  SFX.rankup = t => { duck(2); ['C5', 'E5', 'G5', 'C6', 'E6', 'G6'].forEach((n, i) => tone(mtof(midi(n)), t + i * 0.09, 0.2, 'square', 0.09, sfxBus)); };
 
   function setMuted(m) {
     muted = m;
@@ -194,5 +225,5 @@ window.RGMusic = (() => {
     if (ac) master.gain.setTargetAtTime(m ? 0 : 0.9, ac.currentTime, 0.05);
   }
 
-  return { play, unlock, sfx, setMuted, isMuted: () => muted };
+  return { play, unlock, sfx, attack, setMuted, isMuted: () => muted };
 })();

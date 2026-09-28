@@ -26,14 +26,15 @@
   </div>
   <div id="zone-chip" class="pill light">📍 Upper East Side</div>
   <button id="btn-sound" aria-label="Turn music off">🔊</button>
-  <button id="btn-map" aria-label="Open the neighborhood map">🗺️</button>
 
   <div id="nearby"><div class="nearby-title">Nearby</div><div id="nearby-list"></div></div>
 
   <nav id="dock">
     <button id="btn-dex" aria-label="Regidex"><span class="ico">📖</span><span class="lbl">Regidex</span></button>
-    <button id="btn-bag" class="main" aria-label="Bag"><span class="ico">👑</span></button>
+    <button id="btn-league" aria-label="Battle League"><span class="ico">⚔️</span><span class="lbl">League</span></button>
+    <button id="btn-bag" class="main" aria-label="Trainer and bag"><span class="ico">👑</span></button>
     <button id="btn-box" aria-label="My Regimon"><span class="ico">🗃️</span><span class="lbl">Caught</span></button>
+    <button id="btn-map" aria-label="Open the neighborhood map"><span class="ico">🗺️</span><span class="lbl">Map</span></button>
   </nav>
 
   <div id="toast"></div>
@@ -57,14 +58,14 @@
   </section>
 
   <section id="battle" class="hidden">
-    <div class="b-field">
+    <div class="b-field" id="b-field">
       <div class="b-trainer" id="b-trainer"></div>
       <div class="b-foe">
         <div class="b-card">
           <div class="b-name"><span id="bf-name"></span><span class="b-lv" id="bf-lv"></span></div>
           <div class="b-types" id="bf-types"></div>
           <div class="hp"><div id="bf-hp"></div></div>
-          <div class="b-team" id="bf-team"></div>
+          <div class="b-meta"><span class="b-team" id="bf-team"></span><span class="b-shields" id="bf-shields"></span><span class="b-status" id="bf-status"></span></div>
         </div>
         <img id="bf-img" class="b-mon" alt="">
       </div>
@@ -75,18 +76,29 @@
           <div class="b-types" id="bm-types"></div>
           <div class="hp"><div id="bm-hp"></div></div>
           <div class="b-hpnum" id="bm-hpnum"></div>
-          <div class="b-team" id="bm-team"></div>
+          <div class="en" title="Energy"><div id="bm-en"></div></div>
+          <div class="b-meta"><span class="b-team" id="bm-team"></span><span class="b-shields" id="bm-shields"></span><span class="b-status" id="bm-status"></span></div>
         </div>
       </div>
     </div>
+    <canvas id="b-fx"></canvas>
     <div class="b-panel">
       <div id="b-msg" aria-live="polite"></div>
-      <div id="b-moves"></div>
+      <div class="b-controls">
+        <button class="b-charged" id="b-c0"><span class="fill"></span><b></b><small></small></button>
+        <button class="b-fast" id="b-fast"><span>👊</span><small>Fast attack</small></button>
+        <button class="b-charged" id="b-c1"><span class="fill"></span><b></b><small></small></button>
+      </div>
       <div class="b-actions">
         <button id="b-switch">🔁 Switch</button>
+        <span class="b-hint">Hold to attack · 1/2 special · S shield</span>
         <button id="b-run">🏳️ Forfeit</button>
       </div>
     </div>
+    <div class="b-banner" id="b-banner"></div>
+    <div class="b-overlay hidden" id="b-prompt"></div>
+    <div class="b-overlay hidden" id="b-mini"></div>
+    <div class="b-overlay hidden" id="b-pick"></div>
   </section>
 
   <section id="modal" class="hidden">

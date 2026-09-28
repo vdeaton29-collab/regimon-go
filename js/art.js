@@ -26,8 +26,36 @@ window.RGArt = (() => {
     const st = `stroke="${d}" stroke-width="2" stroke-linejoin="round"`;
     const pt = (a, k) => `${(cx + rx * k * Math.cos(a)).toFixed(1)},${(cy + ry * k * Math.sin(a)).toFixed(1)}`;
     let back = '', body = '', front = '';
+    const glow = sp.glow || '#ffffff';
+    const fierce = sp.eyes === 'fierce';
+    const bf = X('gradient') ? `url(#bg${sp.id})` : c;
+    const defs = `<defs>
+      <radialGradient id="au${sp.id}"><stop offset="0" stop-color="${glow}" stop-opacity=".7"/><stop offset=".55" stop-color="${glow}" stop-opacity=".25"/><stop offset="1" stop-color="${glow}" stop-opacity="0"/></radialGradient>
+      <linearGradient id="bg${sp.id}" x1="0" y1="0" x2=".3" y2="1"><stop offset="0" stop-color="${shade(c, 0.35)}"/><stop offset=".55" stop-color="${c}"/><stop offset="1" stop-color="${shade(c, -0.45)}"/></linearGradient>
+    </defs>`;
 
+    if (X('aura')) back += `<circle cx="50" cy="56" r="49" fill="url(#au${sp.id})"/>`;
     back += `<ellipse cx="50" cy="94" rx="27" ry="4" fill="rgba(0,0,0,.18)"/>`;
+
+    // elite features drawn behind the body
+    if (X('bladewings')) for (const s of [-1, 1]) {
+      const sx = cx + s * rx * 0.55, sy = cy - ry * 0.35;
+      const p = (dx, dy) => `${(sx + s * dx).toFixed(1)},${(sy + dy).toFixed(1)}`;
+      back += `<polygon points="${p(0, 0)} ${p(rx * 0.5 + 24, -ry * 0.9 - 6)} ${p(rx * 0.5 + 16, -ry * 0.35)} ${p(rx * 0.5 + 26, -ry * 0.2)} ${p(rx * 0.5 + 14, ry * 0.12)} ${p(rx * 0.5 + 20, ry * 0.35)} ${p(6, ry * 0.45)}" fill="${d}" stroke="${glow}" stroke-width="1.2" stroke-linejoin="round"/>`;
+      back += `<polyline points="${p(4, 2)} ${p(rx * 0.5 + 18, -ry * 0.7)}" stroke="${glow}" stroke-width="1" opacity=".6" fill="none"/>`;
+    }
+    if (X('horns')) for (const s of [-1, 1]) {
+      const h = `M${cx + s * rx * 0.35},${top + 6} Q${cx + s * rx * 1.05},${top - 4} ${cx + s * rx * 0.8},${top - 20}`;
+      back += `<path d="${h}" stroke="${d}" stroke-width="7.5" fill="none" stroke-linecap="round"/><path d="${h}" stroke="#eef2f7" stroke-width="4" fill="none" stroke-linecap="round"/>`;
+    }
+    if (X('crystals')) for (let i = 0; i < 5; i++) {
+      const a = (-150 + i * 30) * Math.PI / 180;
+      back += `<polygon points="${pt(a - 0.12, 0.9)} ${pt(a, 1.42)} ${pt(a + 0.12, 0.9)}" fill="#e0f7ff" stroke="#67e8f9" stroke-width="1.5" stroke-linejoin="round"/>`;
+    }
+    if (X('gills')) for (const s of [-1, 1]) for (let k = 0; k < 3; k++) {
+      const gx = cx + s * (rx * 0.75), gy = ey - 8 + k * 7;
+      back += `<path d="M${gx},${gy} q${s * 10},${-6 + k * 3} ${s * 18},${-4 + k * 5}" stroke="${glow}" stroke-width="4" fill="none" stroke-linecap="round"/>`;
+    }
 
     // ears
     for (const s of [-1, 1]) {
@@ -100,11 +128,11 @@ window.RGArt = (() => {
     if (sp.body === 'worm') {
       for (const [x, y, r] of [[22, 80, 10], [33, 76, 11.5], [45, 69, 13]])
         body += `<circle cx="${x}" cy="${y}" r="${r}" fill="${c}" ${st}/><circle cx="${x}" cy="${y + r * 0.35}" r="${r * 0.55}" fill="${b}"/>`;
-      body += `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${c}" ${st}/>`;
+      body += `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${bf}" ${st}/>`;
     } else if (sp.body === 'ghost') {
-      body += `<path d="M22,60 Q22,26 50,26 Q78,26 78,60 L78,86 Q72,80 66,86 Q60,92 54,86 Q48,80 42,86 Q36,92 30,86 Q26,82 22,86 Z" fill="${c}" ${st} opacity=".95"/>`;
+      body += `<path d="M22,60 Q22,26 50,26 Q78,26 78,60 L78,86 Q72,80 66,86 Q60,92 54,86 Q48,80 42,86 Q36,92 30,86 Q26,82 22,86 Z" fill="${bf}" ${st} opacity=".95"/>`;
     } else {
-      body += `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${c}" ${st}/>`;
+      body += `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${bf}" ${st}/>`;
       body += `<ellipse cx="${cx}" cy="${cy + ry * 0.3}" rx="${rx * 0.62}" ry="${ry * 0.55}" fill="${b}"/>`;
       body += `<ellipse cx="${cx - rx * 0.45}" cy="${cy - ry * 0.55}" rx="${rx * 0.2}" ry="${ry * 0.12}" fill="#fff" opacity=".25"/>`;
     }
@@ -127,9 +155,29 @@ window.RGArt = (() => {
         front += `<polygon points="${cx + i * 5 - 2},${ey + 15} ${cx + i * 5 + 2},${ey + 15} ${cx + i * 5},${ey + 18.5}" fill="#fff"/>`;
     }
 
+    if (X('armor')) for (let k = 0; k < 3; k++) {
+      const y = cy + ry * 0.05 + k * ry * 0.24;
+      front += `<path d="M${cx - rx * 0.45},${y} L${cx},${y + ry * 0.14} L${cx + rx * 0.45},${y}" stroke="${d}" stroke-width="2.6" fill="none" stroke-linejoin="round"/>`;
+    }
+    if (X('armor')) for (const s of [-1, 1]) front += `<circle cx="${cx + s * rx * 0.62}" cy="${cy - ry * 0.05}" r="2.2" fill="${glow}"/>`;
+    if (X('bolts')) for (const s of [-1, 1])
+      front += `<polygon points="${cx + s * rx * 0.72},${cy - 8} ${cx + s * rx * 0.5},${cy + 3} ${cx + s * rx * 0.66},${cy + 3} ${cx + s * rx * 0.48},${cy + 16} ${cx + s * rx * 0.86},${cy - 1} ${cx + s * rx * 0.7},${cy - 1}" fill="${glow}" stroke="${d}" stroke-width="1"/>`;
+    if (X('cracks')) {
+      const cr = `M${cx - rx * 0.7},${cy - 4} l8,5 l-3,7 l9,4 M${cx + rx * 0.2},${cy - ry * 0.6} l-4,8 l7,5 l-2,9 M${cx + rx * 0.75},${cy + 2} l-9,4 l2,7 M${cx - rx * 0.2},${cy + ry * 0.55} l6,-6 l7,2`;
+      front += `<path d="${cr}" stroke="${glow}" stroke-width="4" fill="none" opacity=".35" stroke-linejoin="round"/><path d="${cr}" stroke="${glow}" stroke-width="1.8" fill="none" stroke-linejoin="round"/>`;
+    }
+    if (X('mask')) front += `<rect x="${cx - ex - 9}" y="${ey - 6}" width="${ex * 2 + 18}" height="11" rx="5.5" fill="${shade(c, -0.6)}"/>`;
+
     // eyes
     const er = sp.eyes === 'big' ? 8.5 : 6;
-    for (const s of [-1, 1]) {
+    if (fierce) for (const s of [-1, 1]) {
+      const x = cx + s * ex, o = x + s * 6.5, i = x - s * 5.5;
+      front += `<path d="M${i},${ey + 1} Q${x},${ey - 5.5} ${o},${ey - 2.5} Q${x + s * 1.5},${ey + 4.5} ${i},${ey + 1} Z" fill="${glow}" stroke="${shade(c, -0.6)}" stroke-width="1.4"/>`;
+      front += `<ellipse cx="${x + s * 0.3}" cy="${ey}" rx="1.3" ry="3" fill="#0b0b16"/>`;
+      front += `<circle cx="${x - s * 1.8}" cy="${ey - 1.8}" r="0.9" fill="#fff"/>`;
+      front += `<path d="M${o + s * 1},${ey - 7.5} L${i - s * 1},${ey - 3}" stroke="${shade(c, -0.65)}" stroke-width="3" stroke-linecap="round"/>`;
+    }
+    if (!fierce) for (const s of [-1, 1]) {
       const x = cx + s * ex;
       if (sp.eyes === 'big') front += `<circle cx="${x}" cy="${ey}" r="${er + 3}" fill="${b}"/>`;
       front += `<circle cx="${x}" cy="${ey}" r="${er}" fill="#fff" stroke="${d}" stroke-width="1.5"/>`;
@@ -145,6 +193,9 @@ window.RGArt = (() => {
       front += `<polygon points="${cx - 4.5},${ey + 6} ${cx + 4.5},${ey + 6} ${cx},${ey + 13}" fill="#f4a13a" stroke="#b86e12" stroke-width="1"/>`;
     } else if (X('bill')) {
       front += `<ellipse cx="${cx}" cy="${ey + 11}" rx="10" ry="4.5" fill="#f4a13a" stroke="#b86e12" stroke-width="1"/><path d="M${cx - 8},${ey + 11} L${cx + 8},${ey + 11}" stroke="#b86e12" stroke-width="1"/>`;
+    } else if (fierce) {
+      front += `<path d="M${cx - 6},${ey + 11} Q${cx},${ey + 9} ${cx + 6},${ey + 11}" stroke="${shade(c, -0.65)}" stroke-width="2.2" fill="none" stroke-linecap="round"/>`;
+      if (X('fangs')) for (const s of [-1, 1]) front += `<polygon points="${cx + s * 5.5},${ey + 10.3} ${cx + s * 2.5},${ey + 10} ${cx + s * 4},${ey + 15}" fill="#fff" stroke="${d}" stroke-width=".6"/>`;
     } else if (!X('snout')) {
       front += `<path d="M${cx - 5},${ey + 10} Q${cx},${ey + 15} ${cx + 5},${ey + 10}" stroke="${d}" stroke-width="2" fill="none" stroke-linecap="round"/>`;
       if (X('teeth')) front += `<polygon points="${cx - 4},${ey + 11} ${cx - 1},${ey + 11.8} ${cx - 2.6},${ey + 14.5}" fill="#fff"/><polygon points="${cx + 4},${ey + 11} ${cx + 1},${ey + 11.8} ${cx + 2.6},${ey + 14.5}" fill="#fff"/>`;
@@ -159,11 +210,19 @@ window.RGArt = (() => {
     if (X('flame'))
       front += `<line x1="${cx}" y1="${top + 1}" x2="${cx}" y2="${top - 6}" stroke="#333" stroke-width="2"/><path d="M${cx},${top - 26} Q${cx + 11},${top - 10} ${cx},${top - 4} Q${cx - 11},${top - 10} ${cx},${top - 26}Z" fill="#ff8a1f"/><path d="M${cx},${top - 18} Q${cx + 5},${top - 9} ${cx},${top - 6} Q${cx - 5},${top - 9} ${cx},${top - 18}Z" fill="#ffe066"/>`;
 
-    // signature accessory
-    const [ax, ay] = sp.accPos === 'head' ? [cx, top - 3] : [cx + rx - 1, cy + ry * 0.35];
-    front += `<text x="${ax}" y="${ay}" font-size="${sp.accPos === 'head' ? 19 : 20}" text-anchor="middle" dominant-baseline="central" font-family="${EMOJI_FONT}">${sp.acc}</text>`;
+    if (X('flamecrest')) for (let k = -2; k <= 2; k++) {
+      const fx = cx + k * 6, h = 18 - Math.abs(k) * 4, by = top + 5 + Math.abs(k) * 2;
+      front += `<path d="M${fx - 5},${by} Q${fx - 6},${by - h * 0.6} ${fx + k},${by - h} Q${fx + 6},${by - h * 0.5} ${fx + 5},${by} Z" fill="#ff7b00"/><path d="M${fx - 2.5},${by} Q${fx - 3},${by - h * 0.4} ${fx + k * 0.6},${by - h * 0.65} Q${fx + 3},${by - h * 0.3} ${fx + 2.5},${by} Z" fill="#ffe066"/>`;
+    }
+    if (X('halo')) front += `<ellipse cx="${cx}" cy="${top - 9}" rx="15" ry="4.5" fill="none" stroke="${glow}" stroke-width="3.2"/><ellipse cx="${cx}" cy="${top - 9}" rx="15" ry="4.5" fill="none" stroke="#fff" stroke-width="1" opacity=".8"/>`;
 
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="200" height="200">${back}${body}${front}</svg>`;
+    // signature accessory
+    if (sp.acc) {
+      const [ax, ay] = sp.accPos === 'head' ? [cx, top - 3] : [cx + rx - 1, cy + ry * 0.35];
+      front += `<text x="${ax}" y="${ay}" font-size="${sp.accPos === 'head' ? 19 : 20}" text-anchor="middle" dominant-baseline="central" font-family="${EMOJI_FONT}">${sp.acc}</text>`;
+    }
+
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="200" height="200">${defs}${back}${body}${front}</svg>`;
   }
 
   const cache = {};
