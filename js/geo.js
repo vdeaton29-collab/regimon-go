@@ -76,24 +76,50 @@ window.RGGeo = (() => {
   const LIBERTY_ISLAND = ellPoly(40.6892, -74.0445, 150, 110, 30, 20);
   const ELLIS_ISLAND = ellPoly(40.6992, -74.0395, 190, 110, 20, 20);
   const MILL_ROCK = ellPoly(40.7806, -73.9376, 60, 90, 29, 16);
-  const LANDS = [
+  let LANDS = [
     { name: 'Manhattan', pts: MANHATTAN }, { name: 'New Jersey', pts: NEW_JERSEY }, { name: 'Brooklyn & Queens', pts: BROOKLYN_QUEENS },
     { name: 'Roosevelt Island', pts: ROOSEVELT }, { name: 'Governors Island', pts: GOVERNORS }, { name: 'Liberty Island', pts: LIBERTY_ISLAND },
     { name: 'Ellis Island', pts: ELLIS_ISLAND }, { name: 'Mill Rock', pts: MILL_ROCK },
   ];
+  // Real shorelines from OpenStreetMap (js/osm.js) replace the hand-drawn outlines above,
+  // which are still used to decide which borough each real piece of land belongs to.
+  const OSM = window.RGOSM || null;
+  const LANDMAP = {};
+  if (OSM) {
+    const pipXY = (x, y, pts) => { let c = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; };
+    const unflat = f => { const out = []; for (let i = 0; i < f.length; i += 2) out.push([f[i], f[i + 1]]); return out; };
+    const parea = pts => { let a = 0; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) a += (pts[j][0] + pts[i][0]) * (pts[j][1] - pts[i][1]); return Math.abs(a / 2); };
+    const hand = LANDS;
+    LANDS = OSM.land.map(unflat).map(pts => {
+      const votes = {};
+      const step = Math.max(1, Math.floor(pts.length / 60));
+      for (let i = 0; i < pts.length; i += step) for (const h of hand) if (pipXY(pts[i][0], pts[i][1], h.pts)) votes[h.name] = (votes[h.name] || 0) + 1;
+      let name = Object.entries(votes).sort((a, b) => b[1] - a[1])[0]?.[0];
+      if (!name) {   // small islets: name by the nearest hand-drawn island
+        let best = Infinity;
+        for (const h of hand) { const [x, y] = h.pts[0]; const d = Math.hypot(x - pts[0][0], y - pts[0][1]); if (d < best) { best = d; name = h.name; } }
+        if (best > 2000) name = 'Island';
+      }
+      return { name, pts, a: parea(pts) };
+    });
+    for (const l of LANDS) if (!LANDMAP[l.name] || l.a > LANDMAP[l.name].a) LANDMAP[l.name] = l;
+  }
+  const realLand = (name, fallback) => (LANDMAP[name] ? LANDMAP[name].pts : fallback);
+  const M_LAND = realLand('Manhattan', MANHATTAN), NJ_LAND = realLand('New Jersey', NEW_JERSEY);
+  const BQ_LAND = realLand('Brooklyn & Queens', BROOKLYN_QUEENS), RI_LAND = realLand('Roosevelt Island', ROOSEVELT);
 
   // ---------------- street grids (each clipped to land and an optional region) ----------------
   const box = (la0, lo0, la1, lo1) => poly([[la0, lo0], [la0, lo1], [la1, lo1], [la1, lo0]]);
   const GRIDS = [
-    { id: 'manhattan', kind: 'manhattan', grid: MGRID, clip: MANHATTAN, region: gp([[14, -4000], [14, -100], [0, -100], [0, 4000], [140, 4000], [140, -4000]], MGRID) },
-    { id: 'oldcity', grid: makeGrid(40.7128, -74.0060, 10), su: 95, sv: 120, clip: MANHATTAN, region: gp([[14, -4000], [14, -100], [0, -100], [0, 4000], [-140, 4000], [-140, -4000]], MGRID) },
-    { id: 'roosevelt', grid: MGRID, su: 80, sv: 110, clip: ROOSEVELT },
-    { id: 'unioncity', grid: makeGrid(40.7700, -74.0300, 27), su: 75, sv: 170, clip: NEW_JERSEY, region: box(40.757, -74.09, 40.81, -73.98) },
-    { id: 'hoboken', grid: makeGrid(40.7440, -74.0300, 10), su: 70, sv: 110, clip: NEW_JERSEY, region: box(40.733, -74.046, 40.757, -73.98) },
-    { id: 'jcdowntown', grid: makeGrid(40.7200, -74.0430, -16), su: 90, sv: 110, clip: NEW_JERSEY, region: box(40.68, -74.052, 40.733, -73.98) },
-    { id: 'jcheights', grid: makeGrid(40.7330, -74.0630, 33), su: 80, sv: 160, clip: NEW_JERSEY, region: poly([[40.757, -74.09], [40.757, -74.046], [40.733, -74.046], [40.733, -74.052], [40.68, -74.052], [40.68, -74.09]]) },
-    { id: 'brooklyn', grid: makeGrid(40.6960, -73.9950, -10), su: 80, sv: 200, clip: BROOKLYN_QUEENS, region: box(40.67, -74.1, 40.735, -73.9) },
-    { id: 'queens', grid: makeGrid(40.7450, -73.9480, 40), su: 90, sv: 200, clip: BROOKLYN_QUEENS, region: box(40.735, -74.1, 40.81, -73.9) },
+    { id: 'manhattan', kind: 'manhattan', grid: MGRID, clip: M_LAND, region: gp([[14, -4000], [14, -100], [0, -100], [0, 4000], [140, 4000], [140, -4000]], MGRID) },
+    { id: 'oldcity', grid: makeGrid(40.7128, -74.0060, 10), su: 95, sv: 120, clip: M_LAND, region: gp([[14, -4000], [14, -100], [0, -100], [0, 4000], [-140, 4000], [-140, -4000]], MGRID) },
+    { id: 'roosevelt', grid: MGRID, su: 80, sv: 110, clip: RI_LAND },
+    { id: 'unioncity', grid: makeGrid(40.7700, -74.0300, 27), su: 75, sv: 170, clip: NJ_LAND, region: box(40.757, -74.09, 40.81, -73.98) },
+    { id: 'hoboken', grid: makeGrid(40.7440, -74.0300, 10), su: 70, sv: 110, clip: NJ_LAND, region: box(40.733, -74.046, 40.757, -73.98) },
+    { id: 'jcdowntown', grid: makeGrid(40.7200, -74.0430, -16), su: 90, sv: 110, clip: NJ_LAND, region: box(40.68, -74.052, 40.733, -73.98) },
+    { id: 'jcheights', grid: makeGrid(40.7330, -74.0630, 33), su: 80, sv: 160, clip: NJ_LAND, region: poly([[40.757, -74.09], [40.757, -74.046], [40.733, -74.046], [40.733, -74.052], [40.68, -74.052], [40.68, -74.09]]) },
+    { id: 'brooklyn', grid: makeGrid(40.6960, -73.9950, -10), su: 80, sv: 200, clip: BQ_LAND, region: box(40.67, -74.1, 40.735, -73.9) },
+    { id: 'queens', grid: makeGrid(40.7450, -73.9480, 40), su: 90, sv: 200, clip: BQ_LAND, region: box(40.735, -74.1, 40.81, -73.9) },
   ];
 
   // ---------------- parks, lakes, lawns ----------------
@@ -113,7 +139,7 @@ window.RGGeo = (() => {
     { name: 'Stuyvesant Square', pts: rectPoly(40.7336, -73.9837, 90, 160) },
     { name: 'Gramercy Park', pts: rectPoly(40.7382, -73.9861, 60, 90) },
     { name: 'Hudson Yards Park', pts: rectPoly(40.7560, -73.9990, 70, 220) },
-    { name: 'Governors Island', pts: GOVERNORS },
+    { name: 'Governors Island', pts: realLand('Governors Island', GOVERNORS) },
     { name: 'Liberty State Park', pts: poly([[40.7095, -74.0400], [40.7050, -74.0420], [40.7000, -74.0460], [40.6940, -74.0510], [40.6880, -74.0570], [40.6860, -74.0650], [40.7000, -74.0660], [40.7100, -74.0580], [40.7125, -74.0470]]) },
     { name: 'Palisades Cliffs', pts: poly([[40.7560, -74.0255], [40.7700, -74.0150], [40.7850, -74.0065], [40.8060, -73.9975], [40.8060, -74.0020], [40.7850, -74.0110], [40.7700, -74.0195], [40.7570, -74.0290]]) },
     { name: 'Pier A Park', pts: rectPoly(40.7370, -74.0262, 110, 150, 10) },
@@ -299,9 +325,29 @@ window.RGGeo = (() => {
     L('Long Island City', 40.7447, -73.9535, '', 0, '🥤', 0, '', 'The giant Pepsi-Cola sign glows across the river.'),
   ];
 
+  // ---------------- OpenStreetMap detail areas (Tribeca, Hoboken, Jersey City) ----------------
+  let DETAIL = null;
+  if (OSM) {
+    const inFocus = (x, y) => OSM.focus.some(f => x >= f.b[0] && x <= f.b[2] && y >= f.b[1] && y <= f.b[3]);
+    const center = pts => { let x = 0, y = 0; for (const p of pts) { x += p[0]; y += p[1]; } return [x / pts.length, y / pts.length]; };
+    // hand-drawn parks inside the detail areas are replaced by the real ones
+    for (let i = PARKS.length - 1; i >= 0; i--) if (inFocus(...center(PARKS[i].pts))) PARKS.splice(i, 1);
+    const unflat = f => { const out = []; for (let i = 0; i < f.length; i += 2) out.push([f[i], f[i + 1]]); return out; };
+    for (const [kind, n, pts, a] of OSM.parks) if (n >= 0 && kind === 'park' && a > 2500 * PPM * PPM) PARKS.push({ name: OSM.names[n], pts: unflat(pts), noDraw: true });
+    const have = LANDMARKS.map(l => toXY(l.lat, l.lon));
+    for (const p of OSM.pois) {
+      if (LANDMARKS.some(l => l.name === p.name)) continue;
+      const q = toXY(p.lat, p.lon);
+      if (have.some(h => Math.hypot(h.x - q.x, h.y - q.y) < 45 * PPM)) continue;
+      have.push(q);
+      LANDMARKS.push(L(p.name, p.lat, p.lon, p.zone, p.zone ? 55 : 0, p.icon, 0, '', p.blurb));
+    }
+    DETAIL = OSM;
+  }
+
   return {
     LAT0, LAT1, LON0, LON1, PPM, W, H, toXY, toLL, inBounds, poly, makeGrid, rectPoly, ellPoly,
     MGRID, AVENUES, STREET_M, streetU, streetOf, LANDS, GRIDS, PARKS, LAKES, LAWNS, BROADWAY, HIGH_LINE, BRIDGES, WATER_LABELS, HOODS, LANDMARKS,
-    MANHATTAN, NEW_JERSEY,
+    MANHATTAN: M_LAND, NEW_JERSEY: NJ_LAND, DETAIL,
   };
 })();

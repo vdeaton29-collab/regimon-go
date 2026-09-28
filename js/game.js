@@ -148,6 +148,13 @@
     g.save();
     pathPoly(g, G.clip); g.clip();
     if (G.region) { pathPoly(g, G.region); g.clip(); }
+    // leave holes where the real OpenStreetMap detail is drawn instead
+    const holes = FOCUS.filter(b => !(b[2] < view[0] || b[0] > view[2] || b[3] < view[1] || b[1] > view[3]));
+    if (holes.length) {
+      g.beginPath(); g.rect(view[0] - 2000, view[1] - 2000, view[2] - view[0] + 4000, view[3] - view[1] + 4000);
+      for (const b of holes) g.rect(b[0], b[1], b[2] - b[0], b[3] - b[1]);
+      g.clip('evenodd');
+    }
     const grid = G.grid, [u0, u1, v0, v1] = uvRange(grid, view, 120 * PPM);
     const labels = [];
     if (G.kind === 'manhattan') {
@@ -265,6 +272,129 @@
     g.restore();
   }
 
+  // ---------------- OpenStreetMap detail (Tribeca, Hoboken, Jersey City) ----------------
+  const DET = GEO.DETAIL;
+  const FOCUS = DET ? DET.focus.map(f => f.b) : [];
+  const inFocus = (x, y) => FOCUS.some(b => x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]);
+  const DET_CELL = 512;
+  let detIndex = null;
+  function flatBox(f) { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (let i = 0; i < f.length; i += 2) { if (f[i] < x0) x0 = f[i]; if (f[i] > x1) x1 = f[i]; if (f[i + 1] < y0) y0 = f[i + 1]; if (f[i + 1] > y1) y1 = f[i + 1]; } return [x0, y0, x1, y1]; }
+  // Bucket every feature by 512px cells so a tile only looks at what's near it.
+  function detailIndex() {
+    if (detIndex) return detIndex;
+    detIndex = new Map();
+    const add = (kind, i, f, pad = 0) => {
+      const b = flatBox(f);
+      for (let cx = Math.floor((b[0] - pad) / DET_CELL); cx <= Math.floor((b[2] + pad) / DET_CELL); cx++) for (let cy = Math.floor((b[1] - pad) / DET_CELL); cy <= Math.floor((b[3] + pad) / DET_CELL); cy++) {
+        const k = cx + ',' + cy; let cell = detIndex.get(k); if (!cell) detIndex.set(k, cell = []); cell.push(kind, i);
+      }
+    };
+    DET.parks.forEach((p, i) => add(0, i, p[2]));
+    DET.water.forEach((w, i) => add(1, i, w));
+    DET.piers.forEach((p, i) => add(2, i, p[1], 10));
+    DET.roads.forEach((r, i) => add(3, i, r[2], 30));
+    DET.rails.forEach((r, i) => add(4, i, r, 10));
+    DET.buildings.forEach((b, i) => add(5, i, b[1], 40));
+    return detIndex;
+  }
+  function detailIn(view) {
+    const idx = detailIndex(), sets = [new Set(), new Set(), new Set(), new Set(), new Set(), new Set()];
+    for (let cx = Math.floor(view[0] / DET_CELL); cx <= Math.floor(view[2] / DET_CELL); cx++) for (let cy = Math.floor(view[1] / DET_CELL); cy <= Math.floor(view[3] / DET_CELL); cy++) {
+      const cell = idx.get(cx + ',' + cy);
+      if (cell) for (let k = 0; k < cell.length; k += 2) sets[cell[k]].add(cell[k + 1]);
+    }
+    return sets;
+  }
+  function flatPath(g, f, close) { g.moveTo(f[0], f[1]); for (let i = 2; i < f.length; i += 2) g.lineTo(f[i], f[i + 1]); if (close) g.closePath(); }
+  function flatPip(x, y, f) {
+    let c = false;
+    for (let i = 0, j = f.length - 2; i < f.length; j = i, i += 2) {
+      const xi = f[i], yi = f[i + 1], xj = f[j], yj = f[j + 1];
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c;
+    }
+    return c;
+  }
+  const ROAD_W = [44, 36, 31, 27, 22, 12, 15, 5];
+  const BLD = ['#c9b8a3', '#b8a38c', '#d6c7b0', '#a9a39a', '#bcb3a6', '#c4a58c', '#b3a18e', '#b9aa94', '#c7b299', '#a89886'];
+  const BLD_TALL = ['#9aa5b3', '#8d98a8', '#a3adba', '#7f8b9c'];
+  function drawDetail(g, view) {
+    const fs = FOCUS.filter(b => !(b[2] < view[0] || b[0] > view[2] || b[3] < view[1] || b[1] > view[3]));
+    if (!fs.length) return;
+    const [parks, water, piers, roads, rails, blds] = detailIn(view);
+    g.save();
+    g.beginPath(); for (const b of fs) g.rect(b[0], b[1], b[2] - b[0], b[3] - b[1]); g.clip();
+    // land becomes sidewalk-colored ground
+    g.beginPath(); for (const L of GEO.LANDS) { g.moveTo(L.pts[0][0], L.pts[0][1]); for (let i = 1; i < L.pts.length; i++) g.lineTo(L.pts[i][0], L.pts[i][1]); g.closePath(); }
+    g.fillStyle = '#d6cfbf'; g.fill();
+    for (const i of parks) {
+      const [k, , p] = DET.parks[i];
+      g.beginPath(); flatPath(g, p, true);
+      g.fillStyle = k === 'pitch' ? '#5fae5a' : k === 'play' ? '#e3d3a4' : k === 'cemetery' ? '#9fbf8a' : '#82c268'; g.fill();
+      if (k === 'pitch') { g.strokeStyle = 'rgba(255,255,255,.7)'; g.lineWidth = 3; g.stroke(); }
+      if (k === 'park') {
+        const b = flatBox(p), c = 60;
+        for (let x = Math.floor(Math.max(b[0], view[0] - 30) / c); x <= Math.min(b[2], view[2] + 30) / c; x++) for (let y = Math.floor(Math.max(b[1], view[1] - 30) / c); y <= Math.min(b[3], view[3] + 30) / c; y++) {
+          const h = hash(x, y, 31); if (h > 0.5) continue;
+          const tx = x * c + hash(x, y, 32) * c, ty = y * c + hash(x, y, 33) * c;
+          if (!flatPip(tx, ty, p)) continue;
+          const r = 10 + h * 14;
+          g.fillStyle = 'rgba(0,0,0,.14)'; g.beginPath(); g.arc(tx + 4, ty + 5, r, 0, 7); g.fill();
+          g.fillStyle = h < 0.25 ? '#3f8f3a' : '#4d9e44'; g.beginPath(); g.arc(tx, ty, r, 0, 7); g.fill();
+        }
+      }
+    }
+    for (const i of water) { g.beginPath(); flatPath(g, DET.water[i], true); g.fillStyle = '#4f9fd8'; g.fill(); }
+    for (const i of piers) {
+      const [closed, p] = DET.piers[i];
+      g.beginPath(); flatPath(g, p, !!closed);
+      if (closed) { g.fillStyle = '#c2b8a3'; g.fill(); } else { g.strokeStyle = '#c2b8a3'; g.lineWidth = 12; g.lineCap = 'round'; g.stroke(); }
+    }
+    // streets: light edge, then asphalt, widest roads on top
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    const byClass = [[], [], [], [], [], [], [], []];
+    for (const i of roads) byClass[DET.roads[i][0]].push(DET.roads[i][2]);
+    for (let c = 5; c >= 0; c--) { g.strokeStyle = '#b3aa98'; g.lineWidth = ROAD_W[c] + 5; g.beginPath(); for (const p of byClass[c]) flatPath(g, p); g.stroke(); }
+    for (let c = 5; c >= 0; c--) { g.strokeStyle = c <= 1 ? '#4c4f59' : '#575a65'; g.lineWidth = ROAD_W[c]; g.beginPath(); for (const p of byClass[c]) flatPath(g, p); g.stroke(); }
+    g.strokeStyle = 'rgba(232,197,71,.75)'; g.lineWidth = 2; g.setLineDash([22, 18]);
+    g.beginPath(); for (let c = 0; c <= 2; c++) for (const p of byClass[c]) flatPath(g, p); g.stroke(); g.setLineDash([]);
+    g.strokeStyle = '#e6decb'; g.lineWidth = ROAD_W[6]; g.beginPath(); for (const p of byClass[6]) flatPath(g, p); g.stroke();
+    g.strokeStyle = '#efe5cd'; g.lineWidth = ROAD_W[7]; g.setLineDash([10, 8]); g.beginPath(); for (const p of byClass[7]) flatPath(g, p); g.stroke(); g.setLineDash([]);
+    for (const i of rails) {
+      const p = DET.rails[i];
+      g.strokeStyle = '#8a8f99'; g.lineWidth = 9; g.beginPath(); flatPath(g, p); g.stroke();
+      g.strokeStyle = '#5b6070'; g.lineWidth = 12; g.setLineDash([3, 9]); g.beginPath(); flatPath(g, p); g.stroke(); g.setLineDash([]);
+    }
+    // buildings with a soft shadow; taller ones are glassier
+    for (const i of blds) {
+      const [h, p] = DET.buildings[i];
+      const sh = Math.min(h, 30) * 0.7 + 2;
+      g.beginPath(); flatPath(g, p, true);
+      g.save(); g.translate(sh, sh); g.fillStyle = 'rgba(0,0,0,.13)'; g.fill(); g.restore();
+      const k = hash(p[0], p[1], 41);
+      g.fillStyle = h >= 12 ? BLD_TALL[Math.floor(k * BLD_TALL.length)] : BLD[Math.floor(k * BLD.length)];
+      g.fill();
+      g.strokeStyle = 'rgba(60,50,40,.28)'; g.lineWidth = 1.2; g.stroke();
+    }
+    // street names along the longest straight piece of each street
+    const done = new Set();
+    for (const i of roads) {
+      const [c, n, p] = DET.roads[i];
+      if (n < 0 || c > 4) continue;
+      const name = DET.names[n];
+      if (done.has(name)) continue;
+      let best = 0, bi = -1;
+      for (let k = 0; k + 3 < p.length; k += 2) { const d = Math.hypot(p[k + 2] - p[k], p[k + 3] - p[k + 1]); if (d > best) { best = d; bi = k; } }
+      if (best < name.length * 11 + 30) continue;
+      const mx = (p[bi] + p[bi + 2]) / 2, my = (p[bi + 1] + p[bi + 3]) / 2;
+      if (mx < view[0] + 40 || mx > view[2] - 40 || my < view[1] + 12 || my > view[3] - 12) continue;
+      let ang = Math.atan2(p[bi + 3] - p[bi + 1], p[bi + 2] - p[bi]);
+      if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI;
+      label(g, name, mx, my, c <= 1 ? 19 : 17, 'rgba(255,255,255,.92)', ang * 180 / Math.PI, 'rgba(40,42,52,.45)');
+      done.add(name);
+    }
+    g.restore();
+  }
+
   const GRIDDED = new Set(['Manhattan', 'New Jersey', 'Brooklyn & Queens', 'Roosevelt Island']);
   // Draws everything static inside `view` ([x0, y0, x1, y1] in world px). `ov` = overview (no small details).
   function drawWorld(g, view, ov) {
@@ -288,12 +418,13 @@
     }
     const labels = [];
     if (!ov) for (const G of GEO.GRIDS) if (vis(G.box)) labels.push(...drawGrid(g, G, view));
+    if (!ov && DET) drawDetail(g, view);
     // waterfront promenades
     if (!ov) for (const [pts, col, w] of [[GEO.MANHATTAN, '#8fc978', 55], [GEO.NEW_JERSEY, '#d9ccab', 40]]) {
       g.save(); pathPoly(g, pts); g.clip(); g.strokeStyle = col; g.lineWidth = w; pathPoly(g, pts); g.stroke(); g.restore();
     }
     // parks with trees
-    for (const P of GEO.PARKS) if (vis(P.box, 40)) {
+    for (const P of GEO.PARKS) if (!P.noDraw && vis(P.box, 40)) {
       pathPoly(g, P.pts); g.fillStyle = P.name === 'Palisades Cliffs' ? '#6f9b56' : '#78bb5e'; g.fill();
       if (ov) continue;
       g.strokeStyle = '#5f9e4a'; g.lineWidth = 4; g.stroke();
@@ -328,6 +459,7 @@
       const p = FOOT[l.name] || (FOOT[l.name] = GEO.toXY(l.lat, l.lon));
       const s = l.size * PPM;
       if (p.x + s < vx0 || p.x - s > vx1 || p.y + s < vy0 || p.y - s > vy1) continue;
+      if (inFocus(p.x, p.y) && l.shape !== 'star') continue;   // real buildings are drawn there
       drawFootprint(g, l, p.x, p.y);
     }
     for (const l of GEO.LANDMARKS) if (l.size) {
@@ -1685,7 +1817,7 @@
         <li>🏆 <b>Battle League</b> — ranked battles to climb from Freshman to Valedictorian.</li>
       </ul>
       <button class="primary" id="help-go">${first ? "Let's go!" : 'Got it'}</button>
-      <p class="fine">A fan-made game. Not affiliated with Regis High School, Nintendo, Niantic or The Pokémon Company. Stay aware of your surroundings when playing in Live mode.</p>
+      <p class="fine">A fan-made game. Not affiliated with Regis High School, Nintendo, Niantic or The Pokémon Company. Map data © OpenStreetMap contributors. Stay aware of your surroundings when playing in Live mode.</p>
     </div>`, () => { if (first) { S.intro = true; save(); } });
     let pickMode = 'explore';
     if (first) {
@@ -1782,7 +1914,7 @@
     if (mode !== 'map') return;
     const live = S.mode === 'live';
     openModal(`<h2>🗺️ Regimon GO map</h2>
-      <p class="sub">${live ? 'You’re in Live GPS mode — walk for real to move. ' : 'Tap anywhere to travel there. '}⚔️ arenas · 🏆 badges won · 🔷 stops · 🟡 you</p>
+      <p class="sub">${live ? 'You’re in Live GPS mode — walk for real to move. ' : 'Tap anywhere to travel there. '}⚔️ arenas · 🏆 badges won · 🔷 stops · 🟡 you · Map data © OpenStreetMap contributors</p>
       <div class="ov-wrap"><canvas id="ov-canvas"></canvas></div>`);
     const cv = $('#ov-canvas'), wrap = cv.parentElement;
     const cssW = Math.min(wrap.clientWidth, innerHeight * 0.66 * W / H), s = cssW / W, cssH = H * s;

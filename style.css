@@ -472,3 +472,9 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; background: 
 .rar.r7 { background: linear-gradient(90deg, #a5b4fc, #fde68a, #f9a8d4); color: #1b1b2f; }
 .card .shiny-tag { position: absolute; top: 4px; right: 6px; font-size: 13px; }
 @media (max-width: 420px) { .modes { grid-template-columns: 1fr; } }
+
+#osm-credit {
+  position: fixed; left: 6px; bottom: calc(2px + env(safe-area-inset-bottom)); z-index: 4;
+  font-size: 9px; color: rgba(20,32,74,.75); background: rgba(255,253,247,.7); padding: 1px 5px; border-radius: 4px;
+}
+#osm-credit a { color: inherit; }

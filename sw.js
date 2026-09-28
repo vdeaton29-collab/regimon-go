@@ -1,8 +1,8 @@
 // Regimon GO service worker: caches the game so it works offline after the first visit.
-const CACHE = 'regimon-go-v3';
+const CACHE = 'regimon-go-v4';
 const FILES = [
   './', 'index.html', 'style.css', 'manifest.webmanifest', 'icon.svg',
-  'js/geo.js', 'js/data.js', 'js/art.js', 'js/music.js', 'js/battle.js', 'js/game.js',
+  'js/osm.js', 'js/geo.js', 'js/data.js', 'js/art.js', 'js/music.js', 'js/battle.js', 'js/game.js',
 ];
 
 self.addEventListener('install', e => {
