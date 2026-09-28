@@ -390,7 +390,7 @@ window.RGBattle = (() => {
     $('#b-trainer').innerHTML = `<span>${foe.icon}</span> ${foe.name}`;
     fxResize();
     G.onOpen && G.onOpen();
-    G.Music.play('fight');
+    G.Music.play(foe.music || 'fight');
     renderSide(0); renderSide(1);
     last = performance.now();
     cancelAnimationFrame(raf);

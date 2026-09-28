@@ -478,3 +478,24 @@ button { font: inherit; color: inherit; cursor: pointer; border: 0; background: 
   font-size: 9px; color: rgba(20,32,74,.75); background: rgba(255,253,247,.7); padding: 1px 5px; border-radius: 4px;
 }
 #osm-credit a { color: inherit; }
+
+/* ---------- names, online, music ---------- */
+#online-chip {
+  position: fixed; right: 12px; top: calc(112px + env(safe-area-inset-top)); z-index: 5;
+  padding: 7px 12px; font-size: 12px; font-weight: 800;
+}
+#online-chip.on { background: #0f766e; color: #fff; }
+.name-row { display: flex; gap: 8px; margin: 6px 0 12px; }
+.name-row input, #music-select {
+  flex: 1; font: inherit; font-size: 16px; padding: 10px 12px; border-radius: 12px;
+  border: 2px solid #d6d2c4; background: #fff; color: var(--ink); min-width: 0;
+}
+.name-row input:focus, #music-select:focus { outline: none; border-color: var(--gold); }
+.name-row.first { max-width: 440px; margin: 10px auto 4px; }
+#music-select { width: 100%; margin: 6px 0 12px; }
+.fine-note { font-size: 12px !important; line-height: 1.4; }
+.peers { display: grid; gap: 8px; margin: 10px 0; }
+.peer { display: flex; align-items: center; gap: 10px; background: #f1efe6; border-radius: 12px; padding: 8px 10px; }
+.peer-av { width: 34px; height: 34px; flex: none; border-radius: 50%; color: #fff; font-weight: 900; display: grid; place-items: center; text-transform: uppercase; }
+.peer .grow { flex: 1; min-width: 0; }
+.peer small { display: block; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

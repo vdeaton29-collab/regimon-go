@@ -50,6 +50,51 @@ window.RGMusic = (() => {
       bassPat: [0, 0, 12, 0, 0, 12, 0, 12],
       kick: [0, 3, 4], snare: [2, 6], hat: [0, 1, 2, 3, 4, 5, 6, 7],
     }),
+    // Central Park — gentle F major.
+    park: compile({
+      bpm: 100, lead: 'triangle', leadVol: 0.13,
+      melody: `F5 . A5 . C6 . . .   A5 . G5 . F5 . . .   G5 . A5 . Bb5 . A5 G5   A5 . . . . . _ _
+               F5 . A5 . C6 . D6 .  C6 . A5 . F5 . . .   G5 . F5 . E5 . G5 .    F5 . . . . . _ _`,
+      bass: ['F2', 'D2', 'Bb2', 'F2', 'F2', 'D2', 'C3', 'F2'],
+      bassPat: [0, null, 7, null, 12, null, 7, null],
+      kick: [0], snare: [], hat: [2, 6],
+    }),
+    // Midtown at night — jazzy D minor.
+    city: compile({
+      bpm: 118, lead: 'square', leadVol: 0.07,
+      melody: `D5 . F5 A5 _ C6 . A5   G5 . F5 . D5 . . .   E5 . G5 Bb5 _ D6 . Bb5   A5 . . . . . _ _
+               D5 . F5 A5 _ C6 . D6   E6 . D6 . C6 . A5 .   G5 . E5 . C5 . D5 .     D5 . . . . . _ _`,
+      bass: ['D2', 'G2', 'C3', 'F2', 'D2', 'A2', 'C3', 'D2'],
+      bassPat: [0, null, 3, null, 7, null, 10, null],
+      kick: [0, 4], snare: [2, 6], hat: [1, 3, 5, 7],
+    }),
+    // Across the Hudson — bright G major.
+    jersey: compile({
+      bpm: 138, lead: 'square', leadVol: 0.08,
+      melody: `G5 . B5 . D6 . B5 .   C6 . A5 . F#5 . D5 .   G5 . B5 . D6 . G6 .    F#6 . D6 . A5 . . .
+               E6 . C6 . A5 . C6 .   D6 . B5 . G5 . B5 .    A5 . F#5 . D5 . F#5 .  G5 . . . _ _ _ _`,
+      bass: ['G2', 'D2', 'G2', 'D2', 'C3', 'G2', 'D2', 'G2'],
+      bassPat: [0, null, 7, 12, 0, null, 7, 12],
+      kick: [0, 4], snare: [2, 6], hat: [1, 3, 5, 7],
+    }),
+    // The harbor — a sea shanty in A minor.
+    harbor: compile({
+      bpm: 112, lead: 'triangle', leadVol: 0.14,
+      melody: `A4 . . C5 E5 . . A5   G5 . E5 . C5 . . .   D5 . . F5 A5 . . D6   C6 . B5 . A5 . . .
+               E5 . . G5 B5 . . E6   D6 . B5 . G5 . . .   A5 . G5 . E5 . C5 .   A4 . . . _ _ _ _`,
+      bass: ['A2', 'C3', 'D3', 'A2', 'E2', 'G2', 'A2', 'A2'],
+      bassPat: [0, null, null, 7, null, null, 12, null],
+      kick: [0, 3, 6], snare: [], hat: [2, 5],
+    }),
+    // Top arena leaders and high-rank league battles — intense E minor.
+    boss: compile({
+      bpm: 176, lead: 'sawtooth', leadVol: 0.06,
+      melody: `E5 E5 G5 E5 B5 . A5 G5   F#5 . E5 . D5 . F#5 .   E5 E5 G5 E5 C6 . B5 A5   B5 . . . F#5 . . .
+               E6 . D6 . B5 . G5 .      A5 . G5 . F#5 . D5 .    E5 . G5 . B5 . E6 .      D#6 . . . B5 . . .`,
+      bass: ['E2', 'D2', 'C2', 'B1', 'E2', 'D2', 'C2', 'B1'],
+      bassPat: [0, 0, 12, 0, 0, 12, 0, 12],
+      kick: [0, 2, 4, 6], snare: [2, 6], hat: [0, 1, 2, 3, 4, 5, 6, 7],
+    }),
     // Trainer battle — heroic D minor with a big finish on each loop.
     fight: compile({
       bpm: 168, lead: 'square', leadVol: 0.08,
@@ -225,5 +270,6 @@ window.RGMusic = (() => {
     if (ac) master.gain.setTargetAtTime(m ? 0 : 0.9, ac.currentTime, 0.05);
   }
 
-  return { play, unlock, sfx, attack, setMuted, isMuted: () => muted };
+  const TRACK_NAMES = { map: 'Upper East Side', park: 'Central Park', city: 'Midtown Nights', jersey: 'Across the Hudson', harbor: 'Harbor Shanty', battle: 'Wild Encounter', fight: 'Trainer Battle', boss: 'Champion Battle' };
+  return { play, unlock, sfx, attack, setMuted, isMuted: () => muted, TRACK_NAMES, current: () => wanted, lengths: () => Object.fromEntries(Object.entries(TRACKS).map(([k, t]) => [k, [t.len, t.len / 8, t.roots.length]])) };
 })();

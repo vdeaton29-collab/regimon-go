@@ -4,7 +4,7 @@
   const { TYPES, RARITY, SHINY_ODDS, BALLS, ZONES, ZONE_HINTS, ARENAS, TRAINER_NAMES, SPECIES } = window.RG;
   const GEO = window.RGGeo;
   const { W, H, PPM } = GEO;
-  const Art = window.RGArt, Music = window.RGMusic, Battle = window.RGBattle;
+  const Art = window.RGArt, Music = window.RGMusic, Battle = window.RGBattle, Online = window.RGOnline;
   const $ = s => document.querySelector(s);
   const rnd = (a, b) => a + Math.random() * (b - a);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -26,6 +26,7 @@
       version: SAVE_VERSION, xp: 0, level: 1, items: { regi: 30, honors: 5, magna: 1, bagel: 5 },
       dex: {}, caught: [], cooldowns: {}, badges: {}, px: START.x, py: START.y, intro: false, nextUid: 1,
       rating: 1000, leagueW: 0, leagueL: 0, leagueBest: 1000, mode: 'explore', walked: 0, shinies: 0,
+      name: '', pid: Math.random().toString(36).slice(2, 12), online: false, music: 'auto', experimental: false,
     };
   }
   function load() {
@@ -35,6 +36,7 @@
         const s = Object.assign(freshState(), JSON.parse(raw));
         s.items = Object.assign(freshState().items, s.items);
         // Version 1 saves used the old 83rd–96th St map: keep everything but the position.
+        if (!s.pid) s.pid = Math.random().toString(36).slice(2, 12);
         if (s.version !== SAVE_VERSION) { s.version = SAVE_VERSION; s.px = START.x; s.py = START.y; s.cooldowns = {}; }
         if (!(s.px > 0 && s.px < W && s.py > 0 && s.py < H)) { s.px = START.x; s.py = START.y; }
         return s;
@@ -100,6 +102,22 @@
     return { zone: 'street', name: hood || land };
   }
   const zoneAt = (x, y) => placeAt(x, y).zone;
+  // Safe mode keeps players in the most polished areas: Manhattan, the harbor islands, Hoboken and downtown Jersey City.
+  // Water is always allowed so you can cross between them. Experimental mode opens everything.
+  function isSafe(x, y) {
+    if (S.experimental) return true;
+    const land = landAt(x, y);
+    if (!land) return true;
+    if (land === 'Brooklyn & Queens' || land === 'Island') return false;
+    if (land === 'New Jersey') { const { lat, lon } = GEO.toLL(x, y); return lat > 40.700 && lat < 40.760 && lon > -74.056; }
+    return true;
+  }
+  let safeToastAt = 0;
+  function safeBlocked() {
+    if (Date.now() - safeToastAt < 4000) return;
+    safeToastAt = Date.now();
+    toast('🚧 That area is still under construction. Turn on <b>🧪 Experimental mode</b> in the 👑 menu to explore it.', 3500);
+  }
   const isLand = (x, y) => !!landAt(x, y) && !GEO.LAKES.some(k => inB(x, y, k.box) && pip(x, y, k.pts));
 
   function rr(g, x, y, w, h, r) {
@@ -148,13 +166,6 @@
     g.save();
     pathPoly(g, G.clip); g.clip();
     if (G.region) { pathPoly(g, G.region); g.clip(); }
-    // leave holes where the real OpenStreetMap detail is drawn instead
-    const holes = FOCUS.filter(b => !(b[2] < view[0] || b[0] > view[2] || b[3] < view[1] || b[1] > view[3]));
-    if (holes.length) {
-      g.beginPath(); g.rect(view[0] - 2000, view[1] - 2000, view[2] - view[0] + 4000, view[3] - view[1] + 4000);
-      for (const b of holes) g.rect(b[0], b[1], b[2] - b[0], b[3] - b[1]);
-      g.clip('evenodd');
-    }
     const grid = G.grid, [u0, u1, v0, v1] = uvRange(grid, view, 120 * PPM);
     const labels = [];
     if (G.kind === 'manhattan') {
@@ -272,38 +283,72 @@
     g.restore();
   }
 
-  // ---------------- OpenStreetMap detail (Tribeca, Hoboken, Jersey City) ----------------
+  // ---------------- OpenStreetMap detail, streamed in chunks as you move ----------------
   const DET = GEO.DETAIL;
-  const FOCUS = DET ? DET.focus.map(f => f.b) : [];
-  const inFocus = (x, y) => FOCUS.some(b => x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]);
+  const CHUNK_KNOWN = new Set(DET ? DET.chunks.map(([i, j]) => i + '_' + j) : []);
+  const chunks = new Map();   // 'i_j' -> { data, index, rect } | { loading } | { failed }
+  let chunkLoads = 0;
   const DET_CELL = 512;
-  let detIndex = null;
+  const chunkRect = (i, j) => [i * DET.cw, j * DET.ch, (i + 1) * DET.cw, (j + 1) * DET.ch];
+  function loadedAt(x, y) {
+    if (!DET) return false;
+    const c = chunks.get(Math.floor(x / DET.cw) + '_' + Math.floor(y / DET.ch));
+    return !!(c && c.data);
+  }
   function flatBox(f) { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (let i = 0; i < f.length; i += 2) { if (f[i] < x0) x0 = f[i]; if (f[i] > x1) x1 = f[i]; if (f[i + 1] < y0) y0 = f[i + 1]; if (f[i + 1] > y1) y1 = f[i + 1]; } return [x0, y0, x1, y1]; }
-  // Bucket every feature by 512px cells so a tile only looks at what's near it.
-  function detailIndex() {
-    if (detIndex) return detIndex;
-    detIndex = new Map();
+  // Bucket a chunk's features by 512px cells so a tile only looks at what's near it.
+  function buildIndex(d) {
+    const idx = new Map();
     const add = (kind, i, f, pad = 0) => {
       const b = flatBox(f);
       for (let cx = Math.floor((b[0] - pad) / DET_CELL); cx <= Math.floor((b[2] + pad) / DET_CELL); cx++) for (let cy = Math.floor((b[1] - pad) / DET_CELL); cy <= Math.floor((b[3] + pad) / DET_CELL); cy++) {
-        const k = cx + ',' + cy; let cell = detIndex.get(k); if (!cell) detIndex.set(k, cell = []); cell.push(kind, i);
+        const k = cx + ',' + cy; let cell = idx.get(k); if (!cell) idx.set(k, cell = []); cell.push(kind, i);
       }
     };
-    DET.parks.forEach((p, i) => add(0, i, p[2]));
-    DET.water.forEach((w, i) => add(1, i, w));
-    DET.piers.forEach((p, i) => add(2, i, p[1], 10));
-    DET.roads.forEach((r, i) => add(3, i, r[2], 30));
-    DET.rails.forEach((r, i) => add(4, i, r, 10));
-    DET.buildings.forEach((b, i) => add(5, i, b[1], 40));
-    return detIndex;
+    d.parks.forEach((p, i) => add(0, i, p[2]));
+    d.water.forEach((w, i) => add(1, i, w));
+    d.piers.forEach((p, i) => add(2, i, p[1], 10));
+    d.roads.forEach((r, i) => add(3, i, r[2], 30));
+    d.rails.forEach((r, i) => add(4, i, r, 10));
+    d.buildings.forEach((b, i) => add(5, i, b[1], 40));
+    return idx;
   }
-  function detailIn(view) {
-    const idx = detailIndex(), sets = [new Set(), new Set(), new Set(), new Set(), new Set(), new Set()];
-    for (let cx = Math.floor(view[0] / DET_CELL); cx <= Math.floor(view[2] / DET_CELL); cx++) for (let cy = Math.floor(view[1] / DET_CELL); cy <= Math.floor(view[3] / DET_CELL); cy++) {
-      const cell = idx.get(cx + ',' + cy);
-      if (cell) for (let k = 0; k < cell.length; k += 2) sets[cell[k]].add(cell[k + 1]);
+  // Throw away cached map tiles that were drawn before a chunk arrived.
+  function invalidate(r) {
+    for (const k of [...tiles.keys()]) {
+      const [tx, ty] = k.split(',').map(Number);
+      if (tx * TILE < r[2] + 250 && (tx + 1) * TILE > r[0] - 250 && ty * TILE < r[3] + 250 && (ty + 1) * TILE > r[1] - 250) tiles.delete(k);
     }
-    return sets;
+  }
+  function ensureChunks(x0, y0, x1, y1) {
+    if (!DET) return;
+    const now = Date.now();
+    for (let i = Math.max(0, Math.floor(x0 / DET.cw)); i <= Math.min(DET.cols - 1, Math.floor(x1 / DET.cw)); i++) {
+      for (let j = Math.max(0, Math.floor(y0 / DET.ch)); j <= Math.min(DET.rows - 1, Math.floor(y1 / DET.ch)); j++) {
+        const k = i + '_' + j;
+        if (!CHUNK_KNOWN.has(k) || chunkLoads >= 3) continue;
+        const c = chunks.get(k);
+        if (c && (c.data || c.loading || (c.failed && now - c.failed < 30000))) continue;
+        chunks.set(k, { loading: true });
+        chunkLoads++;
+        fetch(`js/osm/c_${i}_${j}.json`)
+          .then(r => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+          .then(d => { const rect = chunkRect(i, j); chunks.set(k, { data: d, index: buildIndex(d), rect, used: now }); invalidate(rect); })
+          .catch(() => chunks.set(k, { failed: Date.now() }))
+          .finally(() => { chunkLoads--; });
+      }
+    }
+    // keep memory in check: drop the chunks farthest from the player
+    const loaded = [...chunks.entries()].filter(([, c]) => c.data);
+    if (loaded.length > 20) {
+      loaded.sort((a, b) => hyp((b[1].rect[0] + b[1].rect[2]) / 2, (b[1].rect[1] + b[1].rect[3]) / 2, P.x, P.y) - hyp((a[1].rect[0] + a[1].rect[2]) / 2, (a[1].rect[1] + a[1].rect[3]) / 2, P.x, P.y));
+      for (const [k] of loaded.slice(0, loaded.length - 20)) chunks.delete(k);
+    }
+  }
+  function nearChunks(view, pad) {
+    const out = [];
+    for (const c of chunks.values()) if (c.data && c.rect[0] < view[2] + pad && c.rect[2] > view[0] - pad && c.rect[1] < view[3] + pad && c.rect[3] > view[1] - pad) out.push(c);
+    return out;
   }
   function flatPath(g, f, close) { g.moveTo(f[0], f[1]); for (let i = 2; i < f.length; i += 2) g.lineTo(f[i], f[i + 1]); if (close) g.closePath(); }
   function flatPip(x, y, f) {
@@ -318,16 +363,25 @@
   const BLD = ['#c9b8a3', '#b8a38c', '#d6c7b0', '#a9a39a', '#bcb3a6', '#c4a58c', '#b3a18e', '#b9aa94', '#c7b299', '#a89886'];
   const BLD_TALL = ['#9aa5b3', '#8d98a8', '#a3adba', '#7f8b9c'];
   function drawDetail(g, view) {
-    const fs = FOCUS.filter(b => !(b[2] < view[0] || b[0] > view[2] || b[3] < view[1] || b[1] > view[3]));
-    if (!fs.length) return;
-    const [parks, water, piers, roads, rails, blds] = detailIn(view);
+    const inView = nearChunks(view, 0);
+    if (!inView.length) return;
+    // collect features from every loaded chunk near this view (features can spill over chunk edges)
+    const kinds = [[], [], [], [], [], []];
+    for (const c of nearChunks(view, 400)) {
+      const seen = [new Set(), new Set(), new Set(), new Set(), new Set(), new Set()];
+      for (let cx = Math.floor(view[0] / DET_CELL); cx <= Math.floor(view[2] / DET_CELL); cx++) for (let cy = Math.floor(view[1] / DET_CELL); cy <= Math.floor(view[3] / DET_CELL); cy++) {
+        const cell = c.index.get(cx + ',' + cy);
+        if (cell) for (let k = 0; k < cell.length; k += 2) if (!seen[cell[k]].has(cell[k + 1])) { seen[cell[k]].add(cell[k + 1]); kinds[cell[k]].push([c.data, cell[k + 1]]); }
+      }
+    }
+    const [parks, water, piers, roads, rails, blds] = kinds;
     g.save();
-    g.beginPath(); for (const b of fs) g.rect(b[0], b[1], b[2] - b[0], b[3] - b[1]); g.clip();
-    // land becomes sidewalk-colored ground
+    g.beginPath(); for (const c of inView) g.rect(c.rect[0], c.rect[1], c.rect[2] - c.rect[0], c.rect[3] - c.rect[1]); g.clip();
+    // real land becomes sidewalk-colored ground, covering the simplified map underneath
     g.beginPath(); for (const L of GEO.LANDS) { g.moveTo(L.pts[0][0], L.pts[0][1]); for (let i = 1; i < L.pts.length; i++) g.lineTo(L.pts[i][0], L.pts[i][1]); g.closePath(); }
     g.fillStyle = '#d6cfbf'; g.fill();
-    for (const i of parks) {
-      const [k, , p] = DET.parks[i];
+    for (const [d, i] of parks) {
+      const [k, , p] = d.parks[i];
       g.beginPath(); flatPath(g, p, true);
       g.fillStyle = k === 'pitch' ? '#5fae5a' : k === 'play' ? '#e3d3a4' : k === 'cemetery' ? '#9fbf8a' : '#82c268'; g.fill();
       if (k === 'pitch') { g.strokeStyle = 'rgba(255,255,255,.7)'; g.lineWidth = 3; g.stroke(); }
@@ -343,30 +397,30 @@
         }
       }
     }
-    for (const i of water) { g.beginPath(); flatPath(g, DET.water[i], true); g.fillStyle = '#4f9fd8'; g.fill(); }
-    for (const i of piers) {
-      const [closed, p] = DET.piers[i];
+    for (const [d, i] of water) { g.beginPath(); flatPath(g, d.water[i], true); g.fillStyle = '#4f9fd8'; g.fill(); }
+    for (const [d, i] of piers) {
+      const [closed, p] = d.piers[i];
       g.beginPath(); flatPath(g, p, !!closed);
       if (closed) { g.fillStyle = '#c2b8a3'; g.fill(); } else { g.strokeStyle = '#c2b8a3'; g.lineWidth = 12; g.lineCap = 'round'; g.stroke(); }
     }
     // streets: light edge, then asphalt, widest roads on top
     g.lineCap = 'round'; g.lineJoin = 'round';
     const byClass = [[], [], [], [], [], [], [], []];
-    for (const i of roads) byClass[DET.roads[i][0]].push(DET.roads[i][2]);
+    for (const [d, i] of roads) byClass[d.roads[i][0]].push(d.roads[i][2]);
     for (let c = 5; c >= 0; c--) { g.strokeStyle = '#b3aa98'; g.lineWidth = ROAD_W[c] + 5; g.beginPath(); for (const p of byClass[c]) flatPath(g, p); g.stroke(); }
     for (let c = 5; c >= 0; c--) { g.strokeStyle = c <= 1 ? '#4c4f59' : '#575a65'; g.lineWidth = ROAD_W[c]; g.beginPath(); for (const p of byClass[c]) flatPath(g, p); g.stroke(); }
     g.strokeStyle = 'rgba(232,197,71,.75)'; g.lineWidth = 2; g.setLineDash([22, 18]);
     g.beginPath(); for (let c = 0; c <= 2; c++) for (const p of byClass[c]) flatPath(g, p); g.stroke(); g.setLineDash([]);
     g.strokeStyle = '#e6decb'; g.lineWidth = ROAD_W[6]; g.beginPath(); for (const p of byClass[6]) flatPath(g, p); g.stroke();
     g.strokeStyle = '#efe5cd'; g.lineWidth = ROAD_W[7]; g.setLineDash([10, 8]); g.beginPath(); for (const p of byClass[7]) flatPath(g, p); g.stroke(); g.setLineDash([]);
-    for (const i of rails) {
-      const p = DET.rails[i];
+    for (const [d, i] of rails) {
+      const p = d.rails[i];
       g.strokeStyle = '#8a8f99'; g.lineWidth = 9; g.beginPath(); flatPath(g, p); g.stroke();
       g.strokeStyle = '#5b6070'; g.lineWidth = 12; g.setLineDash([3, 9]); g.beginPath(); flatPath(g, p); g.stroke(); g.setLineDash([]);
     }
     // buildings with a soft shadow; taller ones are glassier
-    for (const i of blds) {
-      const [h, p] = DET.buildings[i];
+    for (const [d, i] of blds) {
+      const [h, p] = d.buildings[i];
       const sh = Math.min(h, 30) * 0.7 + 2;
       g.beginPath(); flatPath(g, p, true);
       g.save(); g.translate(sh, sh); g.fillStyle = 'rgba(0,0,0,.13)'; g.fill(); g.restore();
@@ -377,13 +431,13 @@
     }
     // street names along the longest straight piece of each street
     const done = new Set();
-    for (const i of roads) {
-      const [c, n, p] = DET.roads[i];
+    for (const [d, i] of roads) {
+      const [c, n, p] = d.roads[i];
       if (n < 0 || c > 4) continue;
-      const name = DET.names[n];
+      const name = d.names[n];
       if (done.has(name)) continue;
       let best = 0, bi = -1;
-      for (let k = 0; k + 3 < p.length; k += 2) { const d = Math.hypot(p[k + 2] - p[k], p[k + 3] - p[k + 1]); if (d > best) { best = d; bi = k; } }
+      for (let k = 0; k + 3 < p.length; k += 2) { const dd = Math.hypot(p[k + 2] - p[k], p[k + 3] - p[k + 1]); if (dd > best) { best = dd; bi = k; } }
       if (best < name.length * 11 + 30) continue;
       const mx = (p[bi] + p[bi + 2]) / 2, my = (p[bi + 1] + p[bi + 3]) / 2;
       if (mx < view[0] + 40 || mx > view[2] - 40 || my < view[1] + 12 || my > view[3] - 12) continue;
@@ -393,6 +447,15 @@
       done.add(name);
     }
     g.restore();
+  }
+  // Downloads every map chunk so the service worker caches the whole map for offline play.
+  async function downloadMap(onProgress) {
+    const list = DET ? DET.chunks : [];
+    let done = 0;
+    for (const [i, j] of list) {
+      try { await (await fetch(`js/osm/c_${i}_${j}.json`)).arrayBuffer(); } catch (e) { /* keep going */ }
+      onProgress(++done, list.length);
+    }
   }
 
   const GRIDDED = new Set(['Manhattan', 'New Jersey', 'Brooklyn & Queens', 'Roosevelt Island']);
@@ -418,7 +481,6 @@
     }
     const labels = [];
     if (!ov) for (const G of GEO.GRIDS) if (vis(G.box)) labels.push(...drawGrid(g, G, view));
-    if (!ov && DET) drawDetail(g, view);
     // waterfront promenades
     if (!ov) for (const [pts, col, w] of [[GEO.MANHATTAN, '#8fc978', 55], [GEO.NEW_JERSEY, '#d9ccab', 40]]) {
       g.save(); pathPoly(g, pts); g.clip(); g.strokeStyle = col; g.lineWidth = w; pathPoly(g, pts); g.stroke(); g.restore();
@@ -454,12 +516,13 @@
     }
     g.lineCap = 'butt';
     if (ov) return;
-    for (const [txt, p, rot] of labels) if (p.x > vx0 - 200 && p.x < vx1 + 200 && p.y > vy0 - 200 && p.y < vy1 + 200) label(g, txt.toUpperCase(), p.x, p.y, 22, 'rgba(255,255,255,.8)', rot, null);
+    if (DET) drawDetail(g, view);
+    for (const [txt, p, rot] of labels) if (!loadedAt(p.x, p.y) && p.x > vx0 - 200 && p.x < vx1 + 200 && p.y > vy0 - 200 && p.y < vy1 + 200) label(g, txt.toUpperCase(), p.x, p.y, 22, 'rgba(255,255,255,.8)', rot, null);
     for (const l of GEO.LANDMARKS) if (l.size) {
       const p = FOOT[l.name] || (FOOT[l.name] = GEO.toXY(l.lat, l.lon));
       const s = l.size * PPM;
       if (p.x + s < vx0 || p.x - s > vx1 || p.y + s < vy0 || p.y - s > vy1) continue;
-      if (inFocus(p.x, p.y) && l.shape !== 'star') continue;   // real buildings are drawn there
+      if (loadedAt(p.x, p.y) && l.shape !== 'star') continue;   // real buildings are drawn there
       drawFootprint(g, l, p.x, p.y);
     }
     for (const l of GEO.LANDMARKS) if (l.size) {
@@ -557,7 +620,7 @@
       const a = Math.random() * Math.PI * 2, r = rnd(minR, maxR);
       const x = P.x + Math.cos(a) * r, y = P.y + Math.sin(a) * r;
       if (x < 30 || y < 30 || x > W - 30 || y > H - 30) continue;
-      if (spawns.some(s => hyp(s.x, s.y, x, y) < 60)) continue;
+      if (spawns.some(s => hyp(s.x, s.y, x, y) < 60) || !isSafe(x, y)) continue;
       const z = zoneAt(x, y), sp = pickSpecies(z), shiny = Math.random() < SHINY_ODDS;
       spawns.push({ sp, x, y, zone: z, shiny, phase: Math.random() * 6, born: performance.now(), expires: Date.now() + rnd(70, 150) * 1000 * (sp.rarity >= 5 ? 1.6 : 1), cp: rollCP(sp) });
       if (sp.rarity >= 5) {
@@ -570,7 +633,7 @@
 
   // ---------------- HUD ----------------
   function updateHUD() {
-    $('#lvl').textContent = `Lv ${S.level}`;
+    $('#lvl').textContent = `${S.name || 'Trainer'} · Lv ${S.level}`;
     $('#xpfill').style.width = `${(S.xp / xpNeed(S.level)) * 100}%`;
     $('#ball-chip').innerHTML = BALL_ORDER.filter(k => S.items[k] > 0 || k === 'regi')
       .map(k => `<span title="${BALLS[k].name}"><i class="ball-ico ${k}"></i>${S.items[k]}</span>`).join('');
@@ -618,6 +681,9 @@
       else toast('Too far away — walk closer! 🚶');
       return;
     }
+    for (const p of onlinePeers) {
+      if (p.rx != null && hyp(w.x, w.y, p.rx, p.ry - 25) < 32) { Online.wave(p.id); Music.sfx('ready'); toast(`👋 You waved at <b>${esc(p.name)}</b>!`); return; }
+    }
     for (const n of npcs) {
       if (hyp(w.x, w.y, n.x, n.y - 25) < 30) {
         if (hyp(P.x, P.y, n.x, n.y) <= RANGE) challengeNPC(n);
@@ -627,6 +693,7 @@
     }
     for (const a of ARENAS) {
       if (hyp(w.x, w.y, a.x, a.y - 40) < 40) {
+        if (!isSafe(a.x, a.y)) { safeBlocked(); return; }
         if (hyp(P.x, P.y, a.x, a.y) <= RANGE) challengeArena(a);
         else toast(`⚔️ <b>${a.name}</b><br>Leader: ${a.leader}. Walk closer to battle.`);
         return;
@@ -729,6 +796,7 @@
       const ox = P.x, oy = P.y;
       P.x = clamp(P.x + (mx / m) * step, 20, W - 20);
       P.y = clamp(P.y + (my / m) * step, 20, H - 20);
+      if (S.mode !== 'live' && !isSafe(P.x, P.y)) { P.x = ox; P.y = oy; target = null; P.travel = false; holding = false; safeBlocked(); }
       if (!P.travel) S.walked += hyp(ox, oy, P.x, P.y) * METERS_PER_PX;
       P.dir = Math.atan2(my, mx); P.moving = true; P.walkT += dt * (P.travel ? 1.8 : 1);
       if (Math.abs(mx / m) > 0.2) P.face = mx > 0 ? 1 : -1;
@@ -748,9 +816,11 @@
         if (!first && !P.travel) toast(`📍 <b>${place.name}</b><br>${ZONE_HINTS[z]}`);
       }
       // the place name can change inside one zone (e.g. Upper East Side → Yorkville)
+      if (S.music === 'auto' && mode === 'map') Music.play(areaTrack(z));
       if (place.name !== zoneName) { zoneName = place.name; $('#zone-chip').textContent = `${S.mode === 'live' ? '🛰️' : '📍'} ${place.name}`; }
     }
     updateNPCs(dt);
+    updatePeers(dt);
 
     const now = Date.now();
     spawns = spawns.filter(s => s.expires > now && hyp(s.x, s.y, P.x, P.y) < 1100);
@@ -889,12 +959,42 @@
     ctx.restore();
   }
 
+  // ---------------- online trainers ----------------
+  let onlinePeers = [];
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const lookFor = id => {
+    let h = 0; for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) | 0;
+    const [blazer, arm, armBack] = NPC_BLAZERS[Math.abs(h) % NPC_BLAZERS.length];
+    return { blazer, arm, armBack, pack: '#f2c14e', hair: NPC_HAIR[Math.abs(h >> 3) % NPC_HAIR.length], skin: NPC_SKIN[Math.abs(h >> 6) % NPC_SKIN.length], tie: '#f2c14e' };
+  };
+  function nameTag(x, y, text, own) {
+    ctx.font = '800 12px "Trebuchet MS", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const w = ctx.measureText(text).width + 12;
+    ctx.fillStyle = own ? 'rgba(242,193,78,.95)' : 'rgba(20,32,74,.85)'; rr(ctx, x - w / 2, y - 9, w, 18, 9); ctx.fill();
+    ctx.fillStyle = own ? '#14204a' : '#fff'; ctx.fillText(text, x, y + 1);
+  }
+  function updatePeers(dt) {
+    onlinePeers = Online.isOn() ? Online.list() : [];
+    for (const p of onlinePeers) {
+      if (p.x == null) continue;
+      const d = hyp(p.rx, p.ry, p.x, p.y);
+      if (d > 1500) { p.rx = p.x; p.ry = p.y; }
+      else if (d > 2) { const k = Math.min(1, dt * 3); p.rx += (p.x - p.rx) * k; p.ry += (p.y - p.ry) * k; p.walkT += dt; p.moving = true; }
+      else p.moving = false;
+    }
+  }
+  function drawPeer(p, t) {
+    drawPerson({ x: p.rx, y: p.ry, face: p.face, moving: p.moving, walkT: p.walkT }, lookFor(p.id), t);
+    nameTag(p.rx, p.ry - 62, `🌐 ${p.name} · Lv ${p.lvl}`);
+  }
+
   function drawPlayer(t) {
     ctx.save(); ctx.translate(P.x, P.y); ctx.rotate(P.dir);
     ctx.fillStyle = 'rgba(31,58,147,.5)';
     ctx.beginPath(); ctx.moveTo(27, 0); ctx.lineTo(17, -7); ctx.lineTo(17, 7); ctx.closePath(); ctx.fill();
     ctx.restore();
     drawPerson(P, PLAYER_LOOK, t);
+    if (S.name) nameTag(P.x, P.y - 62, S.name, true);
   }
 
   // ---------------- wandering student trainers ----------------
@@ -905,7 +1005,7 @@
   const NPC_QUOTES = ['Our eyes met — that means we battle!', 'I just caught these this morning. Let’s go!', 'Bet you can’t beat my team.',
     'Loser buys the bagels.', 'I’ve been training all through lunch.', 'My Regimon aced their midterms.'];
   const pick = a => a[Math.floor(Math.random() * a.length)];
-  const walkable = (x, y) => x > 30 && y > 30 && x < W - 30 && y < H - 30 && isLand(x, y);
+  const walkable = (x, y) => x > 30 && y > 30 && x < W - 30 && y < H - 30 && isLand(x, y) && isSafe(x, y);
 
   function spawnNPC() {
     for (let tries = 0; tries < 12; tries++) {
@@ -988,7 +1088,7 @@
     const first = !S.badges[a.id];
     Battle.challenge({
       name: a.leader, title: `${a.title} · ${a.name}`, quote: a.quote, team: a.team, color: a.color, icon: first ? '⚔️' : '🏆',
-      badge: !first, tier: a.tier, levelMult: 1, levelAdd: a.tier, smart: clamp(0.62 + a.tier * 0.045, 0, 1),
+      badge: !first, tier: a.tier, music: a.tier >= 10 ? 'boss' : 'fight', levelMult: 1, levelAdd: a.tier, smart: clamp(0.62 + a.tier * 0.045, 0, 1),
       winQuote: 'Train harder and come back. The arena will be here.',
       onResult: win => {
         const out = [];
@@ -1021,7 +1121,7 @@
     get S() { return S; }, byId, Art, Music, TYPES,
     openModal: (h, cb) => openModal(h, cb), closeModal: () => closeModal(), toast: (m, ms) => toast(m, ms),
     onOpen: () => { mode = 'battle'; target = null; holding = false; },
-    onClose: () => { mode = 'map'; Music.play('map'); updateHUD(); renderNearby(); save(); },
+    onClose: () => { mode = 'map'; Music.play(areaTrack(zone)); updateHUD(); renderNearby(); save(); },
   });
 
   function drawPuffs() {
@@ -1041,6 +1141,7 @@
     const hw = cw / 2 / zoom, hh = ch / 2 / zoom;
     const tx0 = Math.max(0, Math.floor((P.x - hw) / TILE)), tx1 = Math.min(Math.ceil(W / TILE) - 1, Math.floor((P.x + hw) / TILE));
     const ty0 = Math.max(0, Math.floor((P.y - hh) / TILE)), ty1 = Math.min(Math.ceil(H / TILE) - 1, Math.floor((P.y + hh) / TILE));
+    ensureChunks(P.x - hw - 1500, P.y - hh - 1500, P.x + hw + 1500, P.y + hh + 1500);
     // Build at most two new tiles per frame; show the low-res overview underneath until they're ready.
     let budget = 2;
     for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
@@ -1075,6 +1176,7 @@
     for (const s of spawns) items.push([s.y, () => drawSpawn(s, t)]);
     for (const a of ARENAS) if (Math.abs(a.x - P.x) < hw + 80 && Math.abs(a.y - P.y) < hh + 120) items.push([a.y, () => drawArena(a, t)]);
     for (const n of npcs) items.push([n.y, () => drawNPC(n, t)]);
+    for (const p of onlinePeers) if (p.rx != null && Math.abs(p.rx - P.x) < hw + 100 && Math.abs(p.ry - P.y) < hh + 100) items.push([p.ry, () => drawPeer(p, t)]);
     items.push([P.y, () => drawPlayer(t)]);
     items.sort((a, b) => a[0] - b[0]);
     for (const [, fn] of items) fn();
@@ -1311,7 +1413,7 @@
     if (!C) return;
     if (removeSpawn) spawns = spawns.filter(s => s !== C.spawn);
     C = null; mode = 'map';
-    Music.play('map');
+    Music.play(areaTrack(zone));
     $('#catch').classList.add('hidden');
     closeModal();
     updateHUD(); renderNearby(); save();
@@ -1713,7 +1815,7 @@
     const name = pick(TRAINER_NAMES);
     Battle.challenge({
       name: `${name}`, title: `Ranked opponent · ${rankOf(opp)[1]} · ${opp}`, quote: pick(NPC_QUOTES), team, color: '#b91c1c', icon: rankOf(opp)[2],
-      tier: 3 + Math.round(f * 4), levelMult: 1 + f * 0.12, levelAdd: Math.round(f * 5), smart: clamp(0.5 + f * 0.45, 0.45, 0.98),
+      tier: 3 + Math.round(f * 4), music: opp >= 1400 ? 'boss' : 'fight', levelMult: 1 + f * 0.12, levelAdd: Math.round(f * 5), smart: clamp(0.5 + f * 0.45, 0.45, 0.98),
       onResult: win => {
         const exp = 1 / (1 + Math.pow(10, (opp - S.rating) / 400));
         const delta = Math.round(32 * ((win ? 1 : 0) - exp)) || (win ? 1 : -1);
@@ -1764,6 +1866,22 @@
         <div><b>${caughtSpecies}/${SPECIES.length}</b><span>Regidex</span></div>
         <div><b>${S.shinies}</b><span>Shinies ✨</span></div>
       </div>
+      <h2 style="font-size:18px">🪪 Trainer name</h2>
+      <div class="name-row"><input id="name-input" maxlength="16" placeholder="Pick a trainer name" value="${esc(S.name)}" autocomplete="off"><button class="ghost" id="name-save">Save</button></div>
+      <h2 style="font-size:18px">🌐 Online</h2>
+      <div class="modes">
+        <button class="mode ${S.online ? '' : 'on'}" id="online-off"><b>🔒 Solo</b><small>Play on your own.</small></button>
+        <button class="mode ${S.online ? 'on' : ''}" id="online-on"><b>🌐 Online</b><small>See other trainers live and wave at them.</small></button>
+      </div>
+      <p class="sub fine-note">Online shares your trainer name, level and neighborhood with other players through a public server. Your map position is shared only in Explore mode — in Live GPS mode your real location is never sent.</p>
+      <h2 style="font-size:18px">🎵 Music</h2>
+      <select id="music-select">${[['auto', 'Auto (changes by neighborhood)'], ...Object.entries(Music.TRACK_NAMES)].map(([k, n]) => `<option value="${k}" ${S.music === k ? 'selected' : ''}>${n}</option>`).join('')}</select>
+      <div class="row"><button class="ghost" id="map-dl">📥 Save the whole map for offline play</button></div>
+      <h2 style="font-size:18px">🗺️ Map areas</h2>
+      <div class="modes">
+        <button class="mode ${S.experimental ? '' : 'on'}" id="area-safe"><b>✅ Safe</b><small>The best, most detailed areas: Manhattan, the harbor, Hoboken and downtown Jersey City.</small></button>
+        <button class="mode ${S.experimental ? 'on' : ''}" id="area-exp"><b>🧪 Experimental</b><small>The whole map, including Brooklyn, Queens and Union City. Some areas aren't finished yet.</small></button>
+      </div>
       <h2 style="font-size:18px">🧭 Play mode</h2>
       <div class="modes">
         <button class="mode ${S.mode === 'explore' ? 'on' : ''}" id="mode-explore"><b>🎮 Explore</b><small>Tap the map to walk anywhere. Works offline.</small></button>
@@ -1784,6 +1902,19 @@
         <button class="ghost" id="bag-help">❓ How to play</button>
         <button class="ghost danger" id="bag-reset">Reset progress</button>
       </div>`);
+    $('#name-save').onclick = () => { setName($('#name-input').value); showBag(); };
+    $('#online-on').onclick = () => { setOnline(true); showBag(); };
+    $('#online-off').onclick = () => { setOnline(false); showBag(); };
+    $('#music-select').onchange = e => { S.music = e.target.value; save(); Music.play(S.music === 'auto' ? areaTrack(zone) : S.music); };
+    $('#map-dl').onclick = async e => {
+      const btn = e.currentTarget;
+      if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) { toast('Offline saving works on the installed web version (vdeaton29-collab.github.io).'); return; }
+      btn.disabled = true;
+      await downloadMap((n, total) => { btn.textContent = `📥 Saving map… ${Math.round(n / total * 100)}%`; });
+      btn.textContent = '✅ Whole map saved for offline play';
+    };
+    $('#area-safe').onclick = () => setExperimental(false);
+    $('#area-exp').onclick = () => setExperimental(true);
     $('#mode-explore').onclick = () => { setMode('explore'); closeModal(); };
     $('#mode-live').onclick = () => { setMode('live'); closeModal(); };
     $('#bag-help').onclick = () => showHelp(false);
@@ -1807,11 +1938,13 @@
         <button class="mode on" id="first-explore"><b>🎮 Explore</b><small>Tap the map to walk anywhere. Works offline.</small></button>
         <button class="mode" id="first-live"><b>🛰️ Live GPS</b><small>Walk around NYC for real. Needs location access.</small></button>
       </div>` : ''}
+      ${first ? `<div class="name-row first"><input id="first-name" maxlength="16" placeholder="Your trainer name" autocomplete="off"></div>` : ''}
       <ul class="how">
         <li>🚶 <b>Walk</b> — in Explore mode, tap or hold the map (or use WASD / arrow keys). In Live mode, just walk. Pinch or scroll to zoom.</li>
         <li>👆 <b>Encounter</b> — tap a Regimon inside your dotted circle, then swipe the ball up at it. Land it in the shrinking ring for a bonus.</li>
         <li>🔷 <b>Stops</b> — tap the spinning diamonds at landmarks for Regi Balls and Bagels.</li>
         <li>🗺️ <b>Explore NYC</b> — every neighborhood has its own Regimon: Skyscraper types in Midtown, Wall Street types downtown, Harbor types by the Statue of Liberty, Jersey types across the Hudson. Open the map to fast-travel anywhere.</li>
+        <li>✅ <b>Safe & 🧪 Experimental</b> — you start in the best areas (Manhattan, the harbor, Hoboken, downtown Jersey City). Turn on Experimental mode in the 👑 menu to explore the whole map while it's still being finished.</li>
         <li>🌟 <b>Rarities</b> — Common, Uncommon, Rare, Legendary, <b>Mythic</b> and <b>Celestial</b>. The rarest appear under a beam of light. About 1 in 64 is a ✨ shiny.</li>
         <li>⚔️ <b>Battle</b> — hold to fast-attack and build ⚡ energy, fire special attacks, time the meter, and use your 2 🛡️ shields. Beat all 15 arena leaders, from the Great Lawn to Liberty Island.</li>
         <li>🏆 <b>Battle League</b> — ranked battles to climb from Freshman to Valedictorian.</li>
@@ -1824,7 +1957,7 @@
       $('#first-explore').onclick = () => { pickMode = 'explore'; $('#first-explore').classList.add('on'); $('#first-live').classList.remove('on'); };
       $('#first-live').onclick = () => { pickMode = 'live'; $('#first-live').classList.add('on'); $('#first-explore').classList.remove('on'); };
     }
-    $('#help-go').onclick = () => { closeModal(); if (first && pickMode === 'live') setMode('live'); };
+    $('#help-go').onclick = () => { if (first) setName($('#first-name').value); closeModal(); if (first && pickMode === 'live') setMode('live'); };
   }
 
   $('#btn-dex').onclick = showDex;
@@ -1833,9 +1966,15 @@
   $('#btn-league').onclick = showLeague;
 
   // ---------------- live GPS mode ----------------
+  function setExperimental(on) {
+    S.experimental = on; save();
+    if (!on && !isSafe(P.x, P.y)) { P.x = START.x; P.y = START.y; target = null; P.travel = false; spawns = []; npcs = []; seedSpawns(); }
+    closeModal(); paintMode();
+    toast(on ? '🧪 <b>Experimental mode</b> is on. The whole map is open — some areas are still being finished.' : '✅ <b>Safe mode</b> is on. You can explore the best areas of the map.', 3500);
+  }
   function paintMode() {
     const chip = $('#mode-chip');
-    chip.textContent = S.mode === 'live' ? (GPS.fix ? '🛰️ Live' : '🛰️ Locating…') : '🎮 Explore';
+    chip.textContent = (S.mode === 'live' ? (GPS.fix ? '🛰️ Live' : '🛰️ Locating…') : '🎮 Explore') + (S.experimental ? ' · 🧪' : '');
     chip.classList.toggle('live', S.mode === 'live');
     zoneName = '';
   }
@@ -1871,6 +2010,8 @@
       return;
     }
     GPS.warnedOut = false;
+    const fixXY = GEO.toXY(lat, lon);
+    if (!isSafe(fixXY.x, fixXY.y)) { safeBlocked(); return; }
     const first = !GPS.fix;
     GPS.fix = GEO.toXY(lat, lon);
     GPS.acc = (accuracy || 20) * PPM;
@@ -1914,7 +2055,7 @@
     if (mode !== 'map') return;
     const live = S.mode === 'live';
     openModal(`<h2>🗺️ Regimon GO map</h2>
-      <p class="sub">${live ? 'You’re in Live GPS mode — walk for real to move. ' : 'Tap anywhere to travel there. '}⚔️ arenas · 🏆 badges won · 🔷 stops · 🟡 you · Map data © OpenStreetMap contributors</p>
+      <p class="sub">${live ? 'You’re in Live GPS mode — walk for real to move. ' : 'Tap anywhere to travel there. '}${S.experimental ? '🧪 Experimental: whole map open' : 'Shaded areas unlock in 🧪 Experimental mode'} · ⚔️ arenas · 🏆 badges won · 🔷 stops · 🟡 you · Map data © OpenStreetMap contributors</p>
       <div class="ov-wrap"><canvas id="ov-canvas"></canvas></div>`);
     const cv = $('#ov-canvas'), wrap = cv.parentElement;
     const cssW = Math.min(wrap.clientWidth, innerHeight * 0.66 * W / H), s = cssW / W, cssH = H * s;
@@ -1922,6 +2063,11 @@
     cv.width = cssW * dpr; cv.height = cssH * dpr;
     const g = cv.getContext('2d'); g.scale(dpr, dpr);
     g.drawImage(getOverview(), 0, 0, cssW, cssH);
+    if (!S.experimental) {
+      const c = 8;
+      g.fillStyle = 'rgba(40,40,55,.45)';
+      for (let yy = 0; yy < cssH; yy += c) for (let xx = 0; xx < cssW; xx += c) if (!isSafe((xx + c / 2) / s, (yy + c / 2) / s)) g.fillRect(xx, yy, c, c);
+    }
     g.textAlign = 'center'; g.textBaseline = 'middle';
     for (const st of STOPS) { g.fillStyle = (S.cooldowns[st.id] || 0) > Date.now() ? '#b36bd9' : '#2f9df4'; g.beginPath(); g.arc(st.x * s, st.y * s, 2, 0, 7); g.fill(); }
     g.font = '700 10px "Trebuchet MS", sans-serif';
@@ -1938,6 +2084,7 @@
       if (S.mode === 'live') { toast('🛰️ In Live GPS mode you move by walking. Switch to Explore mode in the 👑 menu to fast-travel.'); return; }
       const r = cv.getBoundingClientRect();
       const x = clamp((e.clientX - r.left) / s, 20, W - 20), y = clamp((e.clientY - r.top) / s, 20, H - 20);
+      if (!isSafe(x, y)) { safeBlocked(); return; }
       target = { x, y }; holding = false;
       P.travel = hyp(x, y, P.x, P.y) > 900;
       closeModal();
@@ -1973,15 +2120,66 @@
   paintSound();
   $('#mode-chip').onclick = showBag;
 
+  // ---------------- names, online, music ----------------
+  function areaTrack(z) {
+    if (S.music !== 'auto') return S.music;
+    return z === 'park' || z === 'water' ? 'park' : z === 'midtown' || z === 'music' || z === 'finance' || z === 'chinatown' ? 'city'
+      : z === 'nj' ? 'jersey' : z === 'harbor' || z === 'river' ? 'harbor' : 'map';
+  }
+  function setName(raw) {
+    const n = Online.cleanName(raw);
+    if (!raw || !String(raw).trim()) return;
+    S.name = n; save(); updateHUD();
+    toast(`🪪 You're now <b>${esc(n)}</b>`);
+  }
+  function paintOnline(status) {
+    const chip = $('#online-chip');
+    if (!S.online) { chip.textContent = '🔒 Solo'; chip.classList.remove('on'); return; }
+    const n = Online.list().length;
+    chip.textContent = status === 'online' || Online.isConnected() ? `🌐 ${n} online` : '🌐 Connecting…';
+    chip.classList.add('on');
+  }
+  function setOnline(on) {
+    if (on && !S.name) { toast('🪪 Pick a trainer name first (👑 menu).'); return; }
+    S.online = on; save();
+    if (on) {
+      Online.start({
+        id: S.pid, world: { W, H },
+        getState: () => ({ n: S.name, l: S.level, h: zoneName, live: S.mode === 'live', f: P.face, mv: P.moving,
+          ...(S.mode === 'live' ? {} : { x: Math.round(P.x), y: Math.round(P.y) }) }),
+        onStatus: paintOnline,
+        onWave: from => { Music.sfx('ready'); toast(`👋 <b>${esc(from)}</b> waved at you!`, 3000); },
+      });
+    } else Online.stop();
+    paintOnline();
+  }
+  function showOnline() {
+    if (!S.online) { showBag(); return; }
+    const list = Online.list().sort((a, b) => a.name.localeCompare(b.name));
+    openModal(`<h2>🌐 Trainers online</h2>
+      <p class="sub">${Online.isConnected() ? `${list.length} other trainer${list.length === 1 ? '' : 's'} playing right now` : 'Connecting…'}</p>
+      <div class="peers">${list.map(p => `<div class="peer"><span class="peer-av" style="background:${lookFor(p.id).blazer}">${esc(p.name[0] || '?')}</span>
+        <span class="grow"><b>${esc(p.name)}</b><small>Lv ${p.lvl} · ${esc(p.hood || 'Somewhere in NYC')}${p.live ? ' · 🛰️ Live' : ''}</small></span>
+        <button class="ghost" data-wave="${esc(p.id)}">👋 Wave</button></div>`).join('') || '<p class="sub" style="text-align:center;padding:20px 0">Nobody else is online right now. Invite a friend!</p>'}</div>
+      <div class="row"><button class="ghost danger" id="go-solo">Go solo</button></div>`);
+    document.querySelectorAll('[data-wave]').forEach(el => { el.onclick = () => { Online.wave(el.dataset.wave); el.textContent = '✓ Waved'; el.disabled = true; }; });
+    $('#go-solo').onclick = () => { setOnline(false); closeModal(); };
+  }
+  $('#online-chip').onclick = showOnline;
+  setInterval(() => { if (S.online) paintOnline(); }, 3000);
+
   // Offline support: cache the game files so it keeps working without internet (on the GitHub Pages site).
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => { /* not available here */ }); });
   }
 
+  if (!isSafe(P.x, P.y)) { P.x = START.x; P.y = START.y; }
   resize();
   updateHUD();
   paintMode();
   if (S.mode === 'live') startGPS();
+  if (S.online && S.name) setOnline(true); else paintOnline();
+  Music.play(areaTrack(zone));
   seedSpawns();
   renderNearby();
   if (!S.intro) showHelp(true);

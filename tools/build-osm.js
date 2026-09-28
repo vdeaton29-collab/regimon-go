@@ -6,6 +6,8 @@
 const fs = require('fs');
 const path = require('path');
 const { overpass } = require('./overpass.js');
+const { loadPbf } = require('./pbf-elements.js');
+const PBF_FILE = path.join(__dirname, 'cache', 'NewYork.osm.pbf');   // from https://download.bbbike.org/osm/bbbike/NewYork/
 
 // Must match js/geo.js
 const LAT0 = 40.683, LAT1 = 40.800, LON0 = -74.080, LON1 = -73.930, PPM = 2.5;
@@ -202,19 +204,39 @@ async function main() {
   const landLL = coastToLand(coastWays);
   const land = landLL.map(toWorld).filter(p => area(p) > 400).map(p => flat(p, 2));
   console.log('land polygons', land.length, 'points', land.reduce((s, p) => s + p.length / 2, 0));
+  const inRing = (x, y, ring) => { let c = false; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) { const [xi, yi] = ring[i], [xj, yj] = ring[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; };
+  const hasLand = (s, w, n, e) => landLL.some(ring => ring.some(([lo, la]) => lo >= w && lo <= e && la >= s && la <= n) ||
+    [[w, s], [e, s], [w, n], [e, n], [(w + e) / 2, (s + n) / 2]].some(([lo, la]) => inRing(lo, la, ring)));
 
-  // ---- focus areas ----
-  const roads = [], buildings = [], parks = [], water = [], piers = [], rails = [];
-  const names = [], nameIdx = new Map();
-  const nameId = n => { if (!n) return -1; if (!nameIdx.has(n)) { nameIdx.set(n, names.length); names.push(n); } return nameIdx.get(n); };
+  // ---- the whole map, fetched in a 6×6 grid of regions and split into 12×12 chunks ----
+  const W = X(LON1), H = Y(LAT0), COLS = 12, ROWS = 12, CW = W / COLS, CH = H / ROWS;
+  const chunks = new Map();
+  const chunkOf = b => {
+    const i = Math.min(COLS - 1, Math.max(0, Math.floor((b[0] + b[2]) / 2 / CW))), j = Math.min(ROWS - 1, Math.max(0, Math.floor((b[1] + b[3]) / 2 / CH)));
+    const k = i + '_' + j;
+    if (!chunks.has(k)) chunks.set(k, { i, j, names: [], nameIdx: new Map(), roads: [], buildings: [], parks: [], water: [], piers: [], rails: [] });
+    return chunks.get(k);
+  };
+  const nameIn = (c, n) => { if (!n) return -1; if (!c.nameIdx.has(n)) { c.nameIdx.set(n, c.names.length); c.names.push(n); } return c.nameIdx.get(n); };
+  const fbox = f => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (let i = 0; i < f.length; i += 2) { x0 = Math.min(x0, f[i]); x1 = Math.max(x1, f[i]); y0 = Math.min(y0, f[i + 1]); y1 = Math.max(y1, f[i + 1]); } return [x0, y0, x1, y1]; };
   const seen = new Set();
-  const pois = [];
-  for (const F of FOCUS) {
-    const b = `${F.s},${F.w},${F.n},${F.e}`;
-    const data = await cached('focus-' + F.id, `[out:json][timeout:300];(
+  const namedParks = [], pois = [];
+  // With a local extract, everything comes from one "region"; otherwise query Overpass in a 12×12 grid.
+  const PBF = fs.existsSync(PBF_FILE) ? await loadPbf(PBF_FILE, [LAT0, LON0, LAT1, LON1]) : null;
+  if (PBF) console.log('using local extract', PBF_FILE);
+  const RX = PBF ? 1 : 12, RY = PBF ? 1 : 12, dLat = (LAT1 - LAT0) / 12, dLon = (LON1 - LON0) / 12;
+  const counts = { roads: 0, buildings: 0, parks: 0 };
+  for (let ry = 0; ry < RY; ry++) for (let rx = 0; rx < RX; rx++) {
+    const s = LAT0 + ry * dLat, w = LON0 + rx * dLon, n = s + dLat, e = w + dLon;
+    if (PBF) { /* single pass over the local extract */ }
+    const b = `${s.toFixed(5)},${w.toFixed(5)},${n.toFixed(5)},${e.toFixed(5)}`;
+    if (!PBF && !hasLand(s, w, n, e)) { console.log(`region ${rx},${ry}: all water, skipped`); continue; }
+    const fresh = !PBF && !fs.existsSync(path.join(CACHE, `region-${rx}-${ry}.json`));
+    if (fresh) await new Promise(r => setTimeout(r, 4000));
+    const data = PBF ? { elements: PBF.elements } : await cached(`region-${rx}-${ry}`, `[out:json][timeout:180];(
       way["highway"](${b});
       way["building"](${b}); relation["building"](${b});
-      way["leisure"~"^(park|garden|playground|pitch|dog_park|recreation_ground)$"](${b}); relation["leisure"="park"](${b});
+      way["leisure"~"^(park|garden|playground|pitch|dog_park|recreation_ground)$"](${b}); relation["leisure"~"^(park|garden)$"](${b});
       way["landuse"~"^(grass|recreation_ground|village_green|cemetery)$"](${b});
       way["natural"~"^(water|wood|scrub)$"](${b}); relation["natural"="water"](${b});
       way["man_made"="pier"](${b});
@@ -225,57 +247,75 @@ async function main() {
       if (seen.has(id)) continue;
       seen.add(id);
       const t = el.tags || {};
+      const put = (kind, p, make) => { if (p.length < 4) return; const c = chunkOf(fbox(p)); c[kind].push(make(c)); };
       if (t.highway) {
         if (t.tunnel === 'yes' || t.tunnel === 'building_passage' || (+t.layer || 0) < 0 || t.highway === 'construction' || t.highway === 'proposed') continue;
         const cls = ROAD_CLASS[t.highway];
         if (cls === undefined) continue;
         if (t.area === 'yes' || t.footway === 'sidewalk' || t.footway === 'crossing' || t.highway === 'steps' || t.service === 'parking_aisle' || t.service === 'driveway') continue;
         const g = geomOf(el); if (g.length < 2) continue;
-        roads.push({ c: cls, n: nameId(t.name), p: flat(toWorld(g), 1.2) });
+        const p = flat(toWorld(g), 1.2);
+        put('roads', p, c => [cls, nameIn(c, t.name), p]); counts.roads++;
       } else if (t.building) {
-        for (const ring of polygonsOf(el)) buildings.push({ p: flat(toWorld(ring), 1), h: Math.min(60, +t['building:levels'] || (t.building === 'house' ? 2 : 4)) });
+        for (const ring of polygonsOf(el)) { const p = flat(toWorld(ring), 1); put('buildings', p, () => [Math.min(60, +t['building:levels'] || (t.building === 'house' ? 2 : 4)), p]); counts.buildings++; }
       } else if (t.leisure || t.landuse || t.natural === 'wood' || t.natural === 'scrub') {
         const kind = t.leisure === 'pitch' ? 'pitch' : t.leisure === 'playground' ? 'play' : t.landuse === 'cemetery' ? 'cemetery' : 'park';
-        for (const ring of polygonsOf(el)) { const w = toWorld(ring); if (area(w) > 200) parks.push({ k: kind, n: nameId(t.name), p: flat(w, 1.5), a: Math.round(area(w)) }); }
+        for (const ring of polygonsOf(el)) {
+          const wpts = toWorld(ring), a = area(wpts);
+          if (a < 200) continue;
+          const p = flat(wpts, 1.5);
+          put('parks', p, c => [kind, nameIn(c, t.name), p]); counts.parks++;
+          if (kind === 'park' && t.name && a > 2500 * PPM * PPM) namedParks.push([t.name, flat(wpts, 6)]);
+        }
       } else if (t.natural === 'water') {
-        for (const ring of polygonsOf(el)) water.push({ p: flat(toWorld(ring), 1.5) });
+        for (const ring of polygonsOf(el)) { const p = flat(toWorld(ring), 1.5); put('water', p, () => p); }
       } else if (t.man_made === 'pier') {
         const g = geomOf(el), closed = g.length > 3 && key(g[0]) === key(g[g.length - 1]);
-        piers.push({ closed, p: flat(toWorld(g), 1) });
+        const p = flat(toWorld(g), 1); put('piers', p, () => [closed ? 1 : 0, p]);
       } else if (t.railway) {
         if (t.tunnel === 'yes' || (+t.layer || 0) < 0) continue;
-        rails.push({ p: flat(toWorld(geomOf(el)), 1.2) });
+        const p = flat(toWorld(geomOf(el)), 1.2); put('rails', p, () => p);
       }
     }
-    // named places → stops
-    const poiData = await cached('pois-' + F.id, `[out:json][timeout:180];(
-      nwr["amenity"~"^(school|university|college|place_of_worship|library|theatre|arts_centre|ferry_terminal|community_centre|fire_station)$"]["name"](${b});
-      nwr["tourism"~"^(museum|attraction|viewpoint|gallery)$"]["name"](${b});
-      nwr["leisure"~"^(park|stadium|sports_centre|marina)$"]["name"](${b});
-      nwr["railway"~"^(station|halt)$"]["name"](${b});
-      nwr["historic"~"^(monument|memorial|building|ship)$"]["name"](${b});
-      nwr["shop"~"^(bakery|mall|department_store)$"]["name"](${b});
-    );out center tags;`);
-    for (const el of poiData.elements) {
-      const t = el.tags || {}, lat = el.lat ?? el.center?.lat, lon = el.lon ?? el.center?.lon;
-      if (!t.name || lat == null) continue;
-      pois.push({ area: F.name, name: t.name, lat: +lat.toFixed(6), lon: +lon.toFixed(6), t });
-    }
+    console.log(`region ${rx},${ry} done: roads ${counts.roads}, buildings ${counts.buildings}`);
   }
-  const out = {
-    attribution: '© OpenStreetMap contributors (ODbL)',
-    focus: FOCUS.map(F => ({ id: F.id, name: F.name, b: [Math.round(X(F.w)), Math.round(Y(F.n)), Math.round(X(F.e)), Math.round(Y(F.s))] })),
-    land, names,
-    roads: roads.map(r => [r.c, r.n, r.p]),
-    buildings: buildings.map(b => [b.h, b.p]),
-    parks: parks.map(p => [p.k, p.n, p.p, p.a]),
-    water: water.map(w => w.p), piers: piers.map(p => [p.closed ? 1 : 0, p.p]), rails: rails.map(r => r.p),
-    pois: pickPois(pois),
-  };
+  // ---- named places for the whole map, in one query ----
+  const allB = `${LAT0},${LON0},${LAT1},${LON1}`;
+  const poiData = PBF ? { elements: [] } : await cached('pois-all', `[out:json][timeout:180];(
+    nwr["amenity"~"^(school|university|college|place_of_worship|library|theatre|arts_centre|ferry_terminal|community_centre|fire_station)$"]["name"](${allB});
+    nwr["tourism"~"^(museum|attraction|viewpoint|gallery)$"]["name"](${allB});
+    nwr["leisure"~"^(park|stadium|sports_centre|marina)$"]["name"](${allB});
+    nwr["railway"~"^(station|halt)$"]["name"](${allB});
+    nwr["historic"~"^(monument|memorial|building|ship)$"]["name"](${allB});
+    nwr["shop"~"^(bakery|mall|department_store)$"]["name"](${allB});
+  );out center tags;`);
+  for (const el of poiData.elements) {
+    const t = el.tags || {}, lat = el.lat ?? el.center?.lat, lon = el.lon ?? el.center?.lon;
+    if (!t.name || lat == null) continue;
+    const area = Math.floor((lon - LON0) / dLon) + '-' + Math.floor((lat - LAT0) / dLat);
+    pois.push({ area, name: t.name, lat: +lat.toFixed(6), lon: +lon.toFixed(6), t });
+  }
+  if (PBF) for (const p of PBF.pois) {
+    const area = Math.floor((p.lon - LON0) / dLon) + '-' + Math.floor((p.lat - LAT0) / dLat);
+    pois.push({ area, name: p.name, lat: +p.lat.toFixed(6), lon: +p.lon.toFixed(6), t: p.t });
+  }
+
+  // ---- write chunk files ----
+  const dir = path.join(__dirname, '..', 'js', 'osm');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  const list = [];
+  let total = 0;
+  for (const c of chunks.values()) {
+    const json = JSON.stringify({ names: c.names, roads: c.roads, buildings: c.buildings, parks: c.parks, water: c.water, piers: c.piers, rails: c.rails });
+    fs.writeFileSync(path.join(dir, `c_${c.i}_${c.j}.json`), json);
+    list.push([c.i, c.j, json.length]);
+    total += json.length;
+  }
+  const out = { attribution: '© OpenStreetMap contributors (ODbL)', land, cols: COLS, rows: ROWS, cw: CW, ch: CH, chunks: list, namedParks, pois: pickPois(pois) };
   const js = '// Generated by tools/build-osm.js from OpenStreetMap data. © OpenStreetMap contributors, ODbL 1.0.\nwindow.RGOSM = ' + JSON.stringify(out) + ';\n';
   fs.writeFileSync(path.join(__dirname, '..', 'js', 'osm.js'), js);
-  console.log('roads', roads.length, 'buildings', buildings.length, 'parks', parks.length, 'water', water.length, 'piers', piers.length, 'rails', rails.length, 'pois', out.pois.length);
-  console.log('osm.js size', (js.length / 1024 / 1024).toFixed(2), 'MB');
+  console.log('chunks', list.length, 'chunk data', (total / 1024 / 1024).toFixed(1), 'MB; osm.js', (js.length / 1024).toFixed(0), 'KB; pois', out.pois.length, 'named parks', namedParks.length);
 }
 
 // Turn named places into game stops: zone, icon, and a short description.
@@ -305,11 +345,11 @@ function pickPois(list) {
   const rank = p => (p.t.railway || p.t.amenity === 'ferry_terminal' ? 0 : p.t.tourism ? 1 : p.t.leisure === 'park' ? 2 : p.t.amenity === 'place_of_worship' ? 3 : 4);
   for (const p of [...byName.values()].sort((a, b) => rank(a) - rank(b))) {
     perArea[p.area] = (perArea[p.area] || 0) + 1;
-    if (perArea[p.area] > 70) continue;
+    if (perArea[p.area] > 14) continue;
     // keep stops at least ~60 m apart
     if (out.some(o => Math.abs(o.lat - p.lat) < 0.00055 && Math.abs(o.lon - p.lon) < 0.0007)) continue;
     const [zone, icon, blurb] = kind(p.t);
-    out.push({ name: p.name, lat: p.lat, lon: p.lon, zone, icon, blurb: `${blurb} (${p.area})` });
+    out.push({ name: p.name, lat: p.lat, lon: p.lon, zone, icon, blurb });
   }
   return out;
 }

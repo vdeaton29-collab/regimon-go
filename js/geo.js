@@ -325,24 +325,20 @@ window.RGGeo = (() => {
     L('Long Island City', 40.7447, -73.9535, '', 0, '🥤', 0, '', 'The giant Pepsi-Cola sign glows across the river.'),
   ];
 
-  // ---------------- OpenStreetMap detail areas (Tribeca, Hoboken, Jersey City) ----------------
+  // ---------------- OpenStreetMap: named parks, stops and the chunk list ----------------
   let DETAIL = null;
   if (OSM) {
-    const inFocus = (x, y) => OSM.focus.some(f => x >= f.b[0] && x <= f.b[2] && y >= f.b[1] && y <= f.b[3]);
-    const center = pts => { let x = 0, y = 0; for (const p of pts) { x += p[0]; y += p[1]; } return [x / pts.length, y / pts.length]; };
-    // hand-drawn parks inside the detail areas are replaced by the real ones
-    for (let i = PARKS.length - 1; i >= 0; i--) if (inFocus(...center(PARKS[i].pts))) PARKS.splice(i, 1);
     const unflat = f => { const out = []; for (let i = 0; i < f.length; i += 2) out.push([f[i], f[i + 1]]); return out; };
-    for (const [kind, n, pts, a] of OSM.parks) if (n >= 0 && kind === 'park' && a > 2500 * PPM * PPM) PARKS.push({ name: OSM.names[n], pts: unflat(pts), noDraw: true });
+    for (const [name, pts] of OSM.namedParks || []) PARKS.push({ name, pts: unflat(pts), noDraw: true });
     const have = LANDMARKS.map(l => toXY(l.lat, l.lon));
-    for (const p of OSM.pois) {
+    for (const p of OSM.pois || []) {
       if (LANDMARKS.some(l => l.name === p.name)) continue;
       const q = toXY(p.lat, p.lon);
       if (have.some(h => Math.hypot(h.x - q.x, h.y - q.y) < 45 * PPM)) continue;
       have.push(q);
       LANDMARKS.push(L(p.name, p.lat, p.lon, p.zone, p.zone ? 55 : 0, p.icon, 0, '', p.blurb));
     }
-    DETAIL = OSM;
+    if (OSM.chunks) DETAIL = { cols: OSM.cols, rows: OSM.rows, cw: OSM.cw, ch: OSM.ch, chunks: OSM.chunks };
   }
 
   return {
