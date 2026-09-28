@@ -29,7 +29,7 @@ You start in **Safe mode**, which covers the most polished areas: all of Manhatt
 
 ## The map
 
-Real geography from OpenStreetMap across the whole map: every street (with its name), building footprint, park, pier and rail line, plus real shorelines. The map streams in chunks as you walk, and the 👑 menu can save the whole map for offline play. Underneath is a simplified map (the tilted Manhattan street grid with every numbered street and avenue, Broadway, Central Park
+Real geography from OpenStreetMap across the whole map: every street (with its name), building footprint, park, pier and rail line, plus real shorelines. Parks are drawn in full detail: 28,000+ real trees, woods, lawns and meadows, flower gardens, playgrounds, running tracks, pools, fountains, statues, park paths and bike paths, and sports fields marked by sport (baseball diamonds, basketball and tennis courts, soccer fields), with names for spots like the Great Lawn, Sheep Meadow and the Ramble. The map streams in chunks as you walk, and the 👑 menu can save the whole map for offline play. Underneath is a simplified map (the tilted Manhattan street grid with every numbered street and avenue, Broadway, Central Park
 (the Reservoir, the Great Lawn, the Lake), the High Line, the bridges, and more than 100 landmarks.
 Every landmark is a stop. Each neighborhood has its own Regimon:
 

@@ -194,8 +194,30 @@ function polygonsOf(el) {
 
 const ROAD_CLASS = {
   motorway: 0, trunk: 0, motorway_link: 1, trunk_link: 1, primary: 1, primary_link: 2, secondary: 2, secondary_link: 3, tertiary: 3, tertiary_link: 3,
-  residential: 4, unclassified: 4, living_street: 4, road: 4, service: 5, pedestrian: 6, footway: 7, path: 7, cycleway: 7, steps: 7,
+  residential: 4, unclassified: 4, living_street: 4, road: 4, service: 5, pedestrian: 6, footway: 7, path: 7, steps: 7, cycleway: 8, bridleway: 9,
 };
+
+// What kind of park land an OSM area is, for drawing.
+function parkKind(t) {
+  const sport = (t.sport || '').split(';')[0];
+  if (t.leisure === 'pitch') return sport === 'baseball' || sport === 'softball' ? 'pitch:baseball' : sport === 'basketball' ? 'pitch:basketball'
+    : sport === 'tennis' || sport === 'pickleball' || sport === 'padel' ? 'pitch:tennis' : /soccer|american_football|rugby|athletics|cricket|field_hockey|lacrosse/.test(sport) ? 'pitch:field'
+    : /handball|volleyball|four_square|paddle/.test(sport) ? 'pitch:court' : 'pitch';
+  if (t.leisure === 'playground') return 'play';
+  if (t.leisure === 'dog_park') return 'dog';
+  if (t.leisure === 'track') return 'track';
+  if (t.leisure === 'swimming_pool') return 'pool';
+  if (t.leisure === 'ice_rink') return 'rink';
+  if (t.leisure === 'garden' || t.landuse === 'flowerbed') return 'garden';
+  if (t.natural === 'wood' || t.landuse === 'forest') return 'wood';
+  if (t.natural === 'scrub' || t.natural === 'heath') return 'scrub';
+  if (t.natural === 'wetland') return 'wetland';
+  if (t.natural === 'beach' || t.natural === 'sand') return 'beach';
+  if (t.landuse === 'grass' || t.landuse === 'meadow' || t.natural === 'grassland' || t.landuse === 'village_green') return 'grass';
+  if (t.landuse === 'cemetery') return 'cemetery';
+  if (/^(park|recreation_ground|nature_reserve)$/.test(t.leisure || '') || t.landuse === 'recreation_ground') return 'park';
+  return null;
+}
 
 async function main() {
   // ---- coastline → land ----
@@ -214,7 +236,7 @@ async function main() {
   const chunkOf = b => {
     const i = Math.min(COLS - 1, Math.max(0, Math.floor((b[0] + b[2]) / 2 / CW))), j = Math.min(ROWS - 1, Math.max(0, Math.floor((b[1] + b[3]) / 2 / CH)));
     const k = i + '_' + j;
-    if (!chunks.has(k)) chunks.set(k, { i, j, names: [], nameIdx: new Map(), roads: [], buildings: [], parks: [], water: [], piers: [], rails: [] });
+    if (!chunks.has(k)) chunks.set(k, { i, j, names: [], nameIdx: new Map(), roads: [], buildings: [], parks: [], water: [], piers: [], rails: [], trees: [], treeRows: [], fountains: [], statues: [] });
     return chunks.get(k);
   };
   const nameIn = (c, n) => { if (!n) return -1; if (!c.nameIdx.has(n)) { c.nameIdx.set(n, c.names.length); c.names.push(n); } return c.nameIdx.get(n); };
@@ -247,7 +269,13 @@ async function main() {
       if (seen.has(id)) continue;
       seen.add(id);
       const t = el.tags || {};
-      const put = (kind, p, make) => { if (p.length < 4) return; const c = chunkOf(fbox(p)); c[kind].push(make(c)); };
+      const put = (kind, p, make) => {
+        if (p.length < 4) return;
+        const bb = fbox(p);
+        const i0 = Math.max(0, Math.floor(bb[0] / CW)), i1 = Math.min(COLS - 1, Math.floor(bb[2] / CW));
+        const j0 = Math.max(0, Math.floor(bb[1] / CH)), j1 = Math.min(ROWS - 1, Math.floor(bb[3] / CH));
+        for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const c = chunkOf([i * CW + 1, j * CH + 1, i * CW + 1, j * CH + 1]); c[kind].push(make(c)); }
+      };
       if (t.highway) {
         if (t.tunnel === 'yes' || t.tunnel === 'building_passage' || (+t.layer || 0) < 0 || t.highway === 'construction' || t.highway === 'proposed') continue;
         const cls = ROAD_CLASS[t.highway];
@@ -258,14 +286,22 @@ async function main() {
         put('roads', p, c => [cls, nameIn(c, t.name), p]); counts.roads++;
       } else if (t.building) {
         for (const ring of polygonsOf(el)) { const p = flat(toWorld(ring), 1); put('buildings', p, () => [Math.min(60, +t['building:levels'] || (t.building === 'house' ? 2 : 4)), p]); counts.buildings++; }
-      } else if (t.leisure || t.landuse || t.natural === 'wood' || t.natural === 'scrub') {
-        const kind = t.leisure === 'pitch' ? 'pitch' : t.leisure === 'playground' ? 'play' : t.landuse === 'cemetery' ? 'cemetery' : 'park';
+      } else if (t.natural === 'tree_row') {
+        const p = flat(toWorld(geomOf(el)), 1.5); put('treeRows', p, () => p);
+      } else if (t.amenity === 'fountain') {
+        for (const ring of polygonsOf(el)) { const p = flat(toWorld(ring), 1); put('fountains', p, () => p); }
+      } else if (t.natural === 'water' || t.landuse === 'reservoir' || t.landuse === 'basin' || t.leisure === 'swimming_pool' && false) {
+        for (const ring of polygonsOf(el)) { const p = flat(toWorld(ring), 1.5); put('water', p, () => p); }
+      } else if (t.leisure || t.landuse || t.natural) {
+        const kind = parkKind(t);
+        if (!kind) continue;
         for (const ring of polygonsOf(el)) {
           const wpts = toWorld(ring), a = area(wpts);
           if (a < 200) continue;
           const p = flat(wpts, 1.5);
           put('parks', p, c => [kind, nameIn(c, t.name), p]); counts.parks++;
           if (kind === 'park' && t.name && a > 2500 * PPM * PPM) namedParks.push([t.name, flat(wpts, 6)]);
+          if (kind === 'park' || kind === 'wood' || kind === 'grass' || kind === 'garden') counts.greens = (counts.greens || 0) + 1;
         }
       } else if (t.natural === 'water') {
         for (const ring of polygonsOf(el)) { const p = flat(toWorld(ring), 1.5); put('water', p, () => p); }
@@ -295,6 +331,11 @@ async function main() {
     const area = Math.floor((lon - LON0) / dLon) + '-' + Math.floor((lat - LAT0) / dLat);
     pois.push({ area, name: t.name, lat: +lat.toFixed(6), lon: +lon.toFixed(6), t });
   }
+  if (PBF) for (const pt of PBF.points || []) {
+    const x = Math.round(X(pt.lon)), y = Math.round(Y(pt.lat));
+    const c = chunkOf([x, y, x, y]);
+    c[pt.kind === 'tree' ? 'trees' : pt.kind === 'fountain' ? 'fountains' : 'statues'].push(...(pt.kind === 'fountain' ? [[x - 4, y - 4, x + 4, y - 4, x + 4, y + 4, x - 4, y + 4]] : [x, y]));
+  }
   if (PBF) for (const p of PBF.pois) {
     const area = Math.floor((p.lon - LON0) / dLon) + '-' + Math.floor((p.lat - LAT0) / dLat);
     pois.push({ area, name: p.name, lat: +p.lat.toFixed(6), lon: +p.lon.toFixed(6), t: p.t });
@@ -307,7 +348,7 @@ async function main() {
   const list = [];
   let total = 0;
   for (const c of chunks.values()) {
-    const json = JSON.stringify({ names: c.names, roads: c.roads, buildings: c.buildings, parks: c.parks, water: c.water, piers: c.piers, rails: c.rails });
+    const json = JSON.stringify({ names: c.names, roads: c.roads, buildings: c.buildings, parks: c.parks, water: c.water, piers: c.piers, rails: c.rails, trees: c.trees, treeRows: c.treeRows, fountains: c.fountains, statues: c.statues });
     fs.writeFileSync(path.join(dir, `c_${c.i}_${c.j}.json`), json);
     list.push([c.i, c.j, json.length]);
     total += json.length;

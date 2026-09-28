@@ -311,6 +311,10 @@
     d.roads.forEach((r, i) => add(3, i, r[2], 30));
     d.rails.forEach((r, i) => add(4, i, r, 10));
     d.buildings.forEach((b, i) => add(5, i, b[1], 40));
+    (d.treeRows || []).forEach((r, i) => add(6, i, r, 30));
+    (d.fountains || []).forEach((f, i) => add(7, i, f, 10));
+    const pts = (list, kind) => { for (let i = 0; i + 1 < (list || []).length; i += 2) add(kind, i, [list[i], list[i + 1]], 30); };
+    pts(d.trees, 8); pts(d.statues, 9);
     return idx;
   }
   // Throw away cached map tiles that were drawn before a chunk arrived.
@@ -359,44 +363,124 @@
     }
     return c;
   }
-  const ROAD_W = [44, 36, 31, 27, 22, 12, 15, 5];
+  const ROAD_W = [44, 36, 31, 27, 22, 12, 15, 7, 8, 9];
+  const COVER = {
+    park: '#86c56c', cemetery: '#a3c28c', grass: '#9bd67c', scrub: '#88b865', wetland: '#8fc3a0', beach: '#efe0ad', dog: '#b9cf88',
+    wood: '#4e9244', garden: '#8fd06f', play: '#ead8a4', track: '#c9603f', pool: '#5ec4f0', rink: '#e3f2fd',
+    pitch: '#5fae5a', 'pitch:baseball': '#5fae5a', 'pitch:field': '#5aa855', 'pitch:tennis': '#3f8f5a', 'pitch:basketball': '#3c6db3', 'pitch:court': '#b87a45',
+  };
+  // Main direction of a shape (for lining up field markings).
+  function axisOf(p) {
+    let cx = 0, cy = 0; const n = p.length / 2;
+    for (let i = 0; i < p.length; i += 2) { cx += p[i]; cy += p[i + 1]; }
+    cx /= n; cy /= n;
+    let xx = 0, yy = 0, xy = 0;
+    for (let i = 0; i < p.length; i += 2) { const dx = p[i] - cx, dy = p[i + 1] - cy; xx += dx * dx; yy += dy * dy; xy += dx * dy; }
+    const ang = 0.5 * Math.atan2(2 * xy, xx - yy), ca = Math.cos(ang), sa = Math.sin(ang);
+    let l = 0, w = 0;
+    for (let i = 0; i < p.length; i += 2) { const dx = p[i] - cx, dy = p[i + 1] - cy; l = Math.max(l, Math.abs(dx * ca + dy * sa)); w = Math.max(w, Math.abs(-dx * sa + dy * ca)); }
+    return { cx, cy, ang, l, w };
+  }
+  function treeAt(g, x, y, r, dark) {
+    g.fillStyle = 'rgba(0,0,0,.16)'; g.beginPath(); g.arc(x + r * 0.3, y + r * 0.35, r, 0, 7); g.fill();
+    g.fillStyle = dark ? '#357a33' : (r > 14 ? '#3f8f3a' : '#4d9e44'); g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+    g.fillStyle = 'rgba(255,255,255,.13)'; g.beginPath(); g.arc(x - r * 0.3, y - r * 0.3, r * 0.45, 0, 7); g.fill();
+  }
+  function drawCover(g, k, p, view) {
+    g.beginPath(); flatPath(g, p, true);
+    g.fillStyle = COVER[k] || '#86c56c'; g.fill();
+    const b = flatBox(p);
+    const within = (c, seed, keep, fn) => {   // hashed points inside the shape and near the view
+      for (let x = Math.floor(Math.max(b[0], view[0] - 40) / c); x <= Math.min(b[2], view[2] + 40) / c; x++) for (let y = Math.floor(Math.max(b[1], view[1] - 40) / c); y <= Math.min(b[3], view[3] + 40) / c; y++) {
+        const h = hash(x, y, seed); if (h > keep) continue;
+        const px = x * c + hash(x, y, seed + 1) * c, py = y * c + hash(x, y, seed + 2) * c;
+        if (flatPip(px, py, p)) fn(px, py, h);
+      }
+    };
+    g.save(); g.beginPath(); flatPath(g, p, true); g.clip();
+    switch (k) {
+      case 'park': within(70, 31, 0.28, (x, y, h) => treeAt(g, x, y, 11 + h * 20)); break;
+      case 'wood': within(30, 51, 0.9, (x, y, h) => treeAt(g, x, y, 13 + h * 8, h < 0.4)); break;
+      case 'scrub': within(34, 61, 0.5, (x, y, h) => { g.fillStyle = '#6e9f52'; g.beginPath(); g.arc(x, y, 5 + h * 6, 0, 7); g.fill(); }); break;
+      case 'grass': within(40, 71, 0.35, (x, y) => { g.strokeStyle = 'rgba(60,120,40,.35)'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x - 3, y + 3); g.lineTo(x, y - 3); g.lineTo(x + 3, y + 3); g.stroke(); }); break;
+      case 'garden': {
+        const FL = ['#f472b6', '#facc15', '#c084fc', '#ffffff', '#fb7185', '#f97316'];
+        within(16, 81, 0.75, (x, y, h) => { g.fillStyle = FL[Math.floor(h * 8) % FL.length]; g.beginPath(); g.arc(x, y, 2.6, 0, 7); g.fill(); });
+        break;
+      }
+      case 'wetland': within(30, 91, 0.6, (x, y) => { g.strokeStyle = 'rgba(59,130,246,.55)'; g.lineWidth = 2; g.beginPath(); g.moveTo(x - 6, y); g.lineTo(x + 6, y); g.stroke(); }); break;
+      case 'cemetery': within(22, 95, 0.6, (x, y) => { g.fillStyle = '#9ca3af'; g.fillRect(x - 2, y - 3, 4, 6); }); break;
+      case 'beach': within(24, 97, 0.4, (x, y) => { g.fillStyle = 'rgba(180,150,90,.4)'; g.beginPath(); g.arc(x, y, 1.6, 0, 7); g.fill(); }); break;
+      case 'play': {
+        const TOY = ['#ef4444', '#3b82f6', '#facc15', '#22c55e'];
+        within(28, 101, 0.45, (x, y, h) => { g.fillStyle = TOY[Math.floor(h * 9) % 4]; g.fillRect(x - 5, y - 5, 10, 10); g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(x - 5, y + 4, 10, 2); });
+        break;
+      }
+      case 'track': {
+        const a = axisOf(p);
+        g.fillStyle = '#5fae5a'; g.beginPath(); g.ellipse(a.cx, a.cy, a.l * 0.72, a.w * 0.55, a.ang, 0, 7); g.fill();
+        g.strokeStyle = 'rgba(255,255,255,.75)'; g.lineWidth = 2;
+        for (const s of [0.8, 0.9]) { g.beginPath(); g.ellipse(a.cx, a.cy, a.l * s, a.w * (s - 0.2), a.ang, 0, 7); g.stroke(); }
+        break;
+      }
+      case 'pool': g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 1.5; { const a = axisOf(p); for (let s = -0.6; s <= 0.61; s += 0.3) { g.beginPath(); g.moveTo(a.cx - Math.cos(a.ang) * a.l + -Math.sin(a.ang) * a.w * s, a.cy - Math.sin(a.ang) * a.l + Math.cos(a.ang) * a.w * s); g.lineTo(a.cx + Math.cos(a.ang) * a.l + -Math.sin(a.ang) * a.w * s, a.cy + Math.sin(a.ang) * a.l + Math.cos(a.ang) * a.w * s); g.stroke(); } } break;
+      case 'pitch:baseball': {
+        const a = axisOf(p), s = Math.min(a.l, a.w) * 0.55;
+        g.save(); g.translate(a.cx, a.cy); g.rotate(a.ang + Math.PI / 4);
+        g.fillStyle = '#d9b27c'; g.fillRect(-s / 2, -s / 2, s, s);
+        g.fillStyle = '#5fae5a'; g.fillRect(-s * 0.3, -s * 0.3, s * 0.6, s * 0.6);
+        g.fillStyle = '#fff'; for (const [bx, by] of [[-s / 2, -s / 2], [s / 2, -s / 2], [s / 2, s / 2], [-s / 2, s / 2]]) g.fillRect(bx - 2.5, by - 2.5, 5, 5);
+        g.fillStyle = '#d9b27c'; g.beginPath(); g.arc(0, 0, s * 0.1, 0, 7); g.fill();
+        g.restore();
+        break;
+      }
+      case 'pitch:field': case 'pitch:tennis': case 'pitch:basketball': case 'pitch:court': case 'pitch': {
+        const a = axisOf(p);
+        g.save(); g.translate(a.cx, a.cy); g.rotate(a.ang);
+        if (k === 'pitch:field') { g.fillStyle = 'rgba(255,255,255,.07)'; for (let x = -a.l; x < a.l; x += 28) g.fillRect(x, -a.w, 14, a.w * 2); }
+        if (k === 'pitch:basketball') { g.fillStyle = '#f97316'; g.fillRect(-a.l * 0.85, -a.w * 0.25, a.l * 0.25, a.w * 0.5); g.fillRect(a.l * 0.6, -a.w * 0.25, a.l * 0.25, a.w * 0.5); }
+        g.strokeStyle = 'rgba(255,255,255,.85)'; g.lineWidth = 2;
+        g.strokeRect(-a.l * 0.88, -a.w * 0.8, a.l * 1.76, a.w * 1.6);
+        g.beginPath(); g.moveTo(0, -a.w * 0.8); g.lineTo(0, a.w * 0.8); g.stroke();
+        if (k !== 'pitch:tennis') { g.beginPath(); g.arc(0, 0, Math.min(a.w * 0.35, 18), 0, 7); g.stroke(); }
+        g.restore();
+        break;
+      }
+    }
+    g.restore();
+    if (k === 'rink' || k === 'pool') { g.beginPath(); flatPath(g, p, true); g.strokeStyle = k === 'rink' ? '#90caf9' : '#ffffff'; g.lineWidth = 3; g.stroke(); }
+    if (k === 'park' || k === 'wood') { g.beginPath(); flatPath(g, p, true); g.strokeStyle = 'rgba(40,90,30,.35)'; g.lineWidth = 3; g.stroke(); }
+  }
   const BLD = ['#c9b8a3', '#b8a38c', '#d6c7b0', '#a9a39a', '#bcb3a6', '#c4a58c', '#b3a18e', '#b9aa94', '#c7b299', '#a89886'];
   const BLD_TALL = ['#9aa5b3', '#8d98a8', '#a3adba', '#7f8b9c'];
   function drawDetail(g, view) {
     const inView = nearChunks(view, 0);
     if (!inView.length) return;
     // collect features from every loaded chunk near this view (features can spill over chunk edges)
-    const kinds = [[], [], [], [], [], []];
+    const kinds = [[], [], [], [], [], [], [], [], [], []];
     for (const c of nearChunks(view, 400)) {
-      const seen = [new Set(), new Set(), new Set(), new Set(), new Set(), new Set()];
+      const seen = kinds.map(() => new Set());
       for (let cx = Math.floor(view[0] / DET_CELL); cx <= Math.floor(view[2] / DET_CELL); cx++) for (let cy = Math.floor(view[1] / DET_CELL); cy <= Math.floor(view[3] / DET_CELL); cy++) {
         const cell = c.index.get(cx + ',' + cy);
         if (cell) for (let k = 0; k < cell.length; k += 2) if (!seen[cell[k]].has(cell[k + 1])) { seen[cell[k]].add(cell[k + 1]); kinds[cell[k]].push([c.data, cell[k + 1]]); }
       }
     }
-    const [parks, water, piers, roads, rails, blds] = kinds;
+    // big features are stored in every chunk they cross, so drop the copies
+    const geomOf = [(d, i) => d.parks[i][2], (d, i) => d.water[i], (d, i) => d.piers[i][1], (d, i) => d.roads[i][2], (d, i) => d.rails[i], (d, i) => d.buildings[i][1], (d, i) => d.treeRows[i], (d, i) => d.fountains[i]];
+    for (let k = 0; k < geomOf.length; k++) {
+      const once = new Set();
+      kinds[k] = kinds[k].filter(([d, i]) => { const p = geomOf[k](d, i), key = p[0] + ',' + p[1] + ',' + p[2] + ',' + p.length; if (once.has(key)) return false; once.add(key); return true; });
+    }
+    const [parks, water, piers, roads, rails, blds, treeRows, fountains, trees, statues] = kinds;
     g.save();
     g.beginPath(); for (const c of inView) g.rect(c.rect[0], c.rect[1], c.rect[2] - c.rect[0], c.rect[3] - c.rect[1]); g.clip();
     // real land becomes sidewalk-colored ground, covering the simplified map underneath
     g.beginPath(); for (const L of GEO.LANDS) { g.moveTo(L.pts[0][0], L.pts[0][1]); for (let i = 1; i < L.pts.length; i++) g.lineTo(L.pts[i][0], L.pts[i][1]); g.closePath(); }
     g.fillStyle = '#d6cfbf'; g.fill();
-    for (const [d, i] of parks) {
-      const [k, , p] = d.parks[i];
-      g.beginPath(); flatPath(g, p, true);
-      g.fillStyle = k === 'pitch' ? '#5fae5a' : k === 'play' ? '#e3d3a4' : k === 'cemetery' ? '#9fbf8a' : '#82c268'; g.fill();
-      if (k === 'pitch') { g.strokeStyle = 'rgba(255,255,255,.7)'; g.lineWidth = 3; g.stroke(); }
-      if (k === 'park') {
-        const b = flatBox(p), c = 60;
-        for (let x = Math.floor(Math.max(b[0], view[0] - 30) / c); x <= Math.min(b[2], view[2] + 30) / c; x++) for (let y = Math.floor(Math.max(b[1], view[1] - 30) / c); y <= Math.min(b[3], view[3] + 30) / c; y++) {
-          const h = hash(x, y, 31); if (h > 0.5) continue;
-          const tx = x * c + hash(x, y, 32) * c, ty = y * c + hash(x, y, 33) * c;
-          if (!flatPip(tx, ty, p)) continue;
-          const r = 10 + h * 14;
-          g.fillStyle = 'rgba(0,0,0,.14)'; g.beginPath(); g.arc(tx + 4, ty + 5, r, 0, 7); g.fill();
-          g.fillStyle = h < 0.25 ? '#3f8f3a' : '#4d9e44'; g.beginPath(); g.arc(tx, ty, r, 0, 7); g.fill();
-        }
-      }
-    }
+    // parks first, then everything that sits on top of them (so a lawn inside a park stays visible)
+    const layer = k => (k === 'park' || k === 'cemetery' ? 0 : k === 'grass' || k === 'scrub' || k === 'wetland' || k === 'beach' || k === 'dog' ? 1 : k === 'wood' ? 2 : k === 'garden' ? 3 : 4);
+    const cover = parks.map(([d, i]) => d.parks[i]).sort((a, b) => layer(a[0]) - layer(b[0]));
+    for (const [k, , p] of cover) drawCover(g, k, p, view);
     for (const [d, i] of water) { g.beginPath(); flatPath(g, d.water[i], true); g.fillStyle = '#4f9fd8'; g.fill(); }
     for (const [d, i] of piers) {
       const [closed, p] = d.piers[i];
@@ -405,14 +489,17 @@
     }
     // streets: light edge, then asphalt, widest roads on top
     g.lineCap = 'round'; g.lineJoin = 'round';
-    const byClass = [[], [], [], [], [], [], [], []];
+    const byClass = [[], [], [], [], [], [], [], [], [], []];
     for (const [d, i] of roads) byClass[d.roads[i][0]].push(d.roads[i][2]);
     for (let c = 5; c >= 0; c--) { g.strokeStyle = '#b3aa98'; g.lineWidth = ROAD_W[c] + 5; g.beginPath(); for (const p of byClass[c]) flatPath(g, p); g.stroke(); }
     for (let c = 5; c >= 0; c--) { g.strokeStyle = c <= 1 ? '#4c4f59' : '#575a65'; g.lineWidth = ROAD_W[c]; g.beginPath(); for (const p of byClass[c]) flatPath(g, p); g.stroke(); }
     g.strokeStyle = 'rgba(232,197,71,.75)'; g.lineWidth = 2; g.setLineDash([22, 18]);
     g.beginPath(); for (let c = 0; c <= 2; c++) for (const p of byClass[c]) flatPath(g, p); g.stroke(); g.setLineDash([]);
     g.strokeStyle = '#e6decb'; g.lineWidth = ROAD_W[6]; g.beginPath(); for (const p of byClass[6]) flatPath(g, p); g.stroke();
-    g.strokeStyle = '#efe5cd'; g.lineWidth = ROAD_W[7]; g.setLineDash([10, 8]); g.beginPath(); for (const p of byClass[7]) flatPath(g, p); g.stroke(); g.setLineDash([]);
+    for (const [cls, edge, fill] of [[9, '#b8a071', '#dcc79a'], [7, '#cdbd94', '#efe3c4'], [8, '#c08e7a', '#e9b5a3']]) {
+      g.strokeStyle = edge; g.lineWidth = ROAD_W[cls] + 3; g.beginPath(); for (const p of byClass[cls]) flatPath(g, p); g.stroke();
+      g.strokeStyle = fill; g.lineWidth = ROAD_W[cls]; g.beginPath(); for (const p of byClass[cls]) flatPath(g, p); g.stroke();
+    }
     for (const [d, i] of rails) {
       const p = d.rails[i];
       g.strokeStyle = '#8a8f99'; g.lineWidth = 9; g.beginPath(); flatPath(g, p); g.stroke();
@@ -428,6 +515,39 @@
       g.fillStyle = h >= 12 ? BLD_TALL[Math.floor(k * BLD_TALL.length)] : BLD[Math.floor(k * BLD.length)];
       g.fill();
       g.strokeStyle = 'rgba(60,50,40,.28)'; g.lineWidth = 1.2; g.stroke();
+    }
+    for (const [d, i] of treeRows) {
+      const p = d.treeRows[i];
+      for (let k = 0; k + 3 < p.length; k += 2) {
+        const len = Math.hypot(p[k + 2] - p[k], p[k + 3] - p[k + 1]), n = Math.max(1, Math.floor(len / 22));
+        for (let s = 0; s <= n; s++) treeAt(g, p[k] + (p[k + 2] - p[k]) * s / n, p[k + 1] + (p[k + 3] - p[k + 1]) * s / n, 10 + hash(k, s, 7) * 4);
+      }
+    }
+    for (const [d, i] of trees) treeAt(g, d.trees[i], d.trees[i + 1], 12 + hash(d.trees[i], d.trees[i + 1], 3) * 8);
+    for (const [d, i] of fountains) {
+      const b = flatBox(d.fountains[i]), cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2, r = Math.max(8, (b[2] - b[0]) / 2);
+      g.fillStyle = '#d8d2c2'; g.beginPath(); g.arc(cx, cy, r + 4, 0, 7); g.fill();
+      g.fillStyle = '#4fa3e0'; g.beginPath(); g.arc(cx, cy, r, 0, 7); g.fill();
+      g.fillStyle = 'rgba(255,255,255,.85)'; for (let a = 0; a < 6; a++) { g.beginPath(); g.arc(cx + Math.cos(a) * r * 0.45, cy + Math.sin(a) * r * 0.45, 1.8, 0, 7); g.fill(); }
+      g.beginPath(); g.arc(cx, cy, r * 0.18 + 1.5, 0, 7); g.fill();
+    }
+    for (const [d, i] of statues) {
+      const x = d.statues[i], y = d.statues[i + 1];
+      g.fillStyle = 'rgba(0,0,0,.2)'; g.fillRect(x - 5, y - 3, 12, 10);
+      g.fillStyle = '#9ca3af'; g.fillRect(x - 6, y - 6, 12, 10);
+      g.fillStyle = '#6b7c73'; g.beginPath(); g.arc(x, y - 4, 4, 0, 7); g.fill();
+    }
+    // names of lawns, gardens, fields and smaller parks
+    const named = new Set();
+    for (const [d, i] of parks) {
+      const [k, n, p] = d.parks[i];
+      if (n < 0 || named.has(d.names[n])) continue;
+      const b = flatBox(p), w = b[2] - b[0], h = b[3] - b[1];
+      if (w * h < 9000 || w * h > 4e6) continue;
+      const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
+      if (cx < view[0] + 60 || cx > view[2] - 60 || cy < view[1] + 12 || cy > view[3] - 12 || !flatPip(cx, cy, p)) continue;
+      label(g, d.names[n], cx, cy, 17, k === 'pool' ? '#0c4a6e' : '#1f4d1a', 0, 'rgba(255,255,255,.75)');
+      named.add(d.names[n]);
     }
     // street names along the longest straight piece of each street
     const done = new Set();
@@ -530,7 +650,9 @@
       if (p.x + s < vx0 - 300 || p.x - s > vx1 + 300 || p.y + s < vy0 - 100 || p.y - s > vy1 + 100) continue;
       label(g, l.shape === 'regis' ? '👑 REGIS HIGH SCHOOL' : l.name, p.x, p.y + s * 0.5 + 26, l.shape === 'regis' ? 40 : 26, '#1b1b2f');
     }
+    const parkNamed = new Set();
     for (const P of GEO.PARKS) {
+      if (parkNamed.has(P.name)) continue; parkNamed.add(P.name);
       const cx = (P.box[0] + P.box[2]) / 2, cy = (P.box[1] + P.box[3]) / 2;
       if (cx > vx0 - 600 && cx < vx1 + 600 && cy > vy0 - 100 && cy < vy1 + 100 && P.box[2] - P.box[0] > 250) label(g, P.name, cx, cy, 30, 'rgba(30,70,25,.8)', 0, 'rgba(255,255,255,.5)');
     }

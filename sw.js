@@ -1,5 +1,5 @@
 // Regimon GO service worker: caches the game so it works offline after the first visit.
-const CACHE = 'regimon-go-v6';
+const CACHE = 'regimon-go-v7';
 const FILES = [
   './', 'index.html', 'style.css', 'manifest.webmanifest', 'icon.svg',
   'js/osm.js', 'js/geo.js', 'js/data.js', 'js/art.js', 'js/music.js', 'js/online.js', 'js/battle.js', 'js/game.js',
