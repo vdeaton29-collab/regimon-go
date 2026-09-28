@@ -1,8 +1,8 @@
 // Regimon GO — map, spawns, stops, catching, Regidex.
 (() => {
   'use strict';
-  const { W, H, TYPES, RARITY, BALLS, ZONES, STOPS, SPECIES } = window.RG;
-  const Art = window.RGArt;
+  const { W, H, TYPES, RARITY, BALLS, ZONES, ZONE_HINTS, STOPS, SPECIES } = window.RG;
+  const Art = window.RGArt, Music = window.RGMusic;
   const $ = s => document.querySelector(s);
   const rnd = (a, b) => a + Math.random() * (b - a);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -41,6 +41,8 @@
   // ---------------- world ----------------
   function zoneAt(x, y) {
     if (x >= 380 && x <= 600 && y >= 60 && y <= 740) return 'museum';
+    if (((x - 300) / 238) ** 2 + ((y - 1250) / 290) ** 2 < 1) return 'water';
+    if (((x - 190) / 120) ** 2 + ((y - 668) / 48) ** 2 < 1) return 'water';
     if (x < 600) return 'park';
     if (x >= 1150 && x <= 1600 && y >= 844 && y <= 1300) return 'school';
     if (x >= 1680 && x <= 2100 && y >= 344 && y <= 800) return 'church';
@@ -116,9 +118,22 @@
     }
     label('Jacqueline Kennedy Onassis Reservoir', 300, 1250, 14, 'rgba(255,255,255,.85)');
     label('Great Lawn', 250, 450, 16, 'rgba(40,90,30,.7)');
+    // Turtle Pond + Belvedere Castle
+    ell(190, 668, 128, 54, '#6aa653');
+    ell(190, 668, 120, 48, '#4f9fd8');
+    ell(170, 660, 70, 22, 'rgba(255,255,255,.12)');
+    for (const [x, y] of [[90, 690], [110, 640], [280, 700], [250, 630]]) { ell(x, y, 7, 5, '#3d8a3a'); }
+    label('Turtle Pond', 190, 700, 12, 'rgba(255,255,255,.85)');
+    g.fillStyle = '#8b8d93'; g.fillRect(312, 590, 46, 34);
+    g.fillStyle = '#a4a7ae'; g.fillRect(316, 594, 38, 26);
+    g.fillStyle = '#7a7c82'; g.fillRect(340, 572, 18, 24);
+    for (let x = 312; x < 358; x += 9) g.fillRect(x, 586, 5, 5);
+    g.fillStyle = '#c62828'; g.fillRect(348, 560, 2, 12); g.fillRect(350, 560, 7, 5);
     for (let i = 0; i < 460; i++) {
       const x = 10 + R() * 575, y = R() * H;
       if (((x - 300) / 252) ** 2 + ((y - 1250) / 305) ** 2 < 1) continue;
+      if (((x - 190) / 140) ** 2 + ((y - 668) / 64) ** 2 < 1) continue;
+      if (x > 300 && x < 370 && y > 550 && y < 640) continue;
       if (((x - 250) / 215) ** 2 + ((y - 450) / 162) ** 2 < 1) continue;
       if (x > 360 && y > 45 && y < 755) continue;
       tree(x, y, 9 + R() * 9);
@@ -254,9 +269,9 @@
   addEventListener('resize', resize);
 
   // ---------------- game state ----------------
-  const P = { x: S.px, y: S.py, dir: -Math.PI / 2, moving: false, walkT: 0 };
+  const P = { x: S.px, y: S.py, dir: -Math.PI / 2, face: 1, moving: false, walkT: 0, puffT: 0 };
   let mode = 'map', modalOpen = false;
-  let spawns = [], floaters = [], target = null, holding = false;
+  let spawns = [], floaters = [], puffs = [], target = null, holding = false;
   let zone = null, spawnTimer = 0, nearbyTimer = 0, saveTimer = 0;
   let C = null;
   const keys = {};
@@ -311,6 +326,7 @@
       S.xp -= xpNeed(S.level); S.level++;
       const gift = { regi: 10, honors: S.level >= 3 ? 3 : 1, magna: S.level >= 6 ? 2 : 0, bagel: 3 };
       for (const k in gift) S.items[k] += gift[k];
+      setTimeout(() => Music.sfx('levelup'), 300);
       setTimeout(() => banner(`LEVEL ${S.level}!`, `+${gift.regi} Regi Balls · +${gift.honors} Honors Balls${gift.magna ? ` · +${gift.magna} Magna Cum Balls` : ''} · +${gift.bagel} Bagels`), 300);
     }
     updateHUD();
@@ -373,6 +389,7 @@
       i++;
     }
     S.cooldowns[st.id] = Date.now() + STOP_COOLDOWN;
+    Music.sfx('spin');
     addXP(50);
     toast(`${st.icon} <b>${st.name}</b><br>${st.blurb}`, 3400);
     save();
@@ -396,10 +413,21 @@
       P.x = clamp(P.x + (mx / m) * step, 20, W - 20);
       P.y = clamp(P.y + (my / m) * step, 20, H - 20);
       P.dir = Math.atan2(my, mx); P.moving = true; P.walkT += dt;
-    } else P.moving = false;
+      if (Math.abs(mx / m) > 0.2) P.face = mx > 0 ? 1 : -1;
+      P.puffT -= dt;
+      if (P.puffT <= 0) { P.puffT = 0.12; puffs.push({ x: P.x - (mx / m) * 8 + rnd(-3, 3), y: P.y + rnd(-1, 2), t: 0 }); }
+    } else { P.moving = false; P.walkT = 0; }
+    for (const p of puffs) p.t += dt;
+    puffs = puffs.filter(p => p.t < 0.5);
 
     const z = zoneAt(P.x, P.y);
-    if (z !== zone) { zone = z; $('#zone-chip').textContent = `📍 ${ZONES[z]}`; }
+    if (z !== zone) {
+      const first = zone === null;
+      zone = z;
+      const name = z === 'water' ? (P.y < 900 ? 'Turtle Pond' : 'The Reservoir') : ZONES[z];
+      $('#zone-chip').textContent = `📍 ${name}`;
+      if (!first) toast(`📍 <b>${name}</b><br>${ZONE_HINTS[z]}`);
+    }
 
     const now = Date.now();
     spawns = spawns.filter(s => s.expires > now && hyp(s.x, s.y, P.x, P.y) < 1100);
@@ -455,33 +483,84 @@
     ctx.globalAlpha = 1;
   }
 
+  // Two-segment limb in the player's local (facing-right) space. Angles are from straight down; positive swings forward.
+  function limb(x, y, a1, l1, a2, l2, w, col) {
+    const kx = x + Math.sin(a1) * l1, ky = y + Math.cos(a1) * l1;
+    const fx = kx + Math.sin(a2) * l2, fy = ky + Math.cos(a2) * l2;
+    ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(kx, ky); ctx.lineTo(fx, fy); ctx.stroke();
+    return [fx, fy];
+  }
+
   function drawPlayer(t) {
-    const { x, y } = P;
-    const sw = P.moving ? Math.sin(P.walkT * 12) : 0;
+    const { x, y } = P, run = P.moving;
+    const ph = P.walkT * 13;                 // run-cycle phase
+    const s = Math.sin(ph);
+    const bob = run ? -Math.abs(Math.cos(ph)) * 3.5 : Math.sin(t / 450) * 0.8;
+    const lean = run ? 0.17 : 0;
+
     ctx.fillStyle = 'rgba(0,0,0,.22)';
-    ctx.beginPath(); ctx.ellipse(x, y, 14, 6, 0, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x, y, run ? 12 + Math.abs(Math.cos(ph)) * 3 : 14, 5.5, 0, 0, 7); ctx.fill();
     // heading wedge
     ctx.save(); ctx.translate(x, y); ctx.rotate(P.dir);
-    ctx.fillStyle = 'rgba(31,58,147,.55)';
-    ctx.beginPath(); ctx.moveTo(26, 0); ctx.lineTo(16, -7); ctx.lineTo(16, 7); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(31,58,147,.5)';
+    ctx.beginPath(); ctx.moveTo(27, 0); ctx.lineTo(17, -7); ctx.lineTo(17, 7); ctx.closePath(); ctx.fill();
     ctx.restore();
-    // legs
-    ctx.fillStyle = '#2b2b36';
-    ctx.fillRect(x - 7, y - 13, 5, 12 + sw * 2);
-    ctx.fillRect(x + 2, y - 13, 5, 12 - sw * 2);
-    // blazer
-    ctx.fillStyle = '#1f3a93'; rr(ctx, x - 11, y - 32, 22, 21, 7); ctx.fill();
+
+    ctx.save();
+    ctx.translate(x, y + bob);
+    ctx.scale(P.face, 1);
+    const hipY = -15;
+    // leg angles: thigh swings with the cycle; the knee folds when the leg is behind
+    const leg = k => {
+      const th = run ? k * 0.85 : 0.08 * Math.sign(k);
+      const bend = run ? 0.15 + Math.max(0, -k) * 1.5 : 0;
+      return [th, th - bend];
+    };
+    const [a1, a2] = leg(s), [b1, b2] = leg(-s);
+    const arm = k => (run ? [-k * 1.0, -k * 1.0 + 1.5] : [0.08 * k, 0.2 * k]);
+    const [ua, fa] = arm(s), [ub, fb] = arm(-s);
+
+    ctx.save(); ctx.translate(0, hipY); ctx.rotate(lean); ctx.translate(0, -hipY);
+    // back arm
+    limb(-1, -28, ub, 6.5, fb, 6, 4.5, '#152b6e');
+    ctx.restore();
+
+    // back leg, then front leg
+    const bf = limb(-1, hipY, b1, 8, b2, 8, 5, '#23232d');
+    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.ellipse(bf[0] + 1.5, bf[1], 3.8, 2.2, 0, 0, 7); ctx.fill();
+    const ff = limb(1, hipY, a1, 8, a2, 8, 5, '#2e2e3a');
+    ctx.fillStyle = '#1b1b1b'; ctx.beginPath(); ctx.ellipse(ff[0] + 1.5, ff[1], 3.8, 2.2, 0, 0, 7); ctx.fill();
+
+    // upper body leans into the run
+    ctx.save(); ctx.translate(0, hipY); ctx.rotate(lean); ctx.translate(0, -hipY);
+    ctx.fillStyle = '#8c1d2f'; rr(ctx, -12, -31, 6, 14, 2.5); ctx.fill();          // backpack
+    ctx.fillStyle = '#1f3a93'; rr(ctx, -8, -33, 16, 20, 6); ctx.fill();            // blazer
     ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.moveTo(x - 5, y - 32); ctx.lineTo(x + 5, y - 32); ctx.lineTo(x, y - 22); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#f2c14e'; ctx.fillRect(x - 1.5, y - 30, 3, 10);
-    // arms
-    ctx.fillStyle = '#1a3180';
-    ctx.fillRect(x - 15, y - 30 - sw * 2, 5, 14); ctx.fillRect(x + 10, y - 30 + sw * 2, 5, 14);
-    // backpack hint + head
-    ctx.fillStyle = '#f0c8a0'; ctx.beginPath(); ctx.arc(x, y - 40, 9, 0, 7); ctx.fill();
-    ctx.fillStyle = '#3a2a1f'; ctx.beginPath(); ctx.arc(x, y - 42, 9, Math.PI * 1.05, Math.PI * 1.95); ctx.fill();
-    ctx.fillStyle = '#1b1b2f';
-    ctx.fillRect(x - 4, y - 41, 2, 2.5); ctx.fillRect(x + 2, y - 41, 2, 2.5);
+    ctx.beginPath(); ctx.moveTo(1, -33); ctx.lineTo(8, -33); ctx.lineTo(4, -25); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#f2c14e'; ctx.fillRect(3.5, -31, 2.5, 9);
+    // head
+    ctx.fillStyle = '#f0c8a0'; ctx.beginPath(); ctx.arc(1.5, -41, 8.5, 0, 7); ctx.fill();
+    ctx.fillStyle = '#3a2a1f';
+    ctx.beginPath(); ctx.arc(1.5, -42.5, 8.7, Math.PI * 0.95, Math.PI * 1.9); ctx.fill();
+    ctx.beginPath(); ctx.arc(-3, -41, 5, Math.PI * 0.5, Math.PI * 1.5); ctx.fill();
+    ctx.fillStyle = '#1b1b2f'; ctx.fillRect(5.5, -42.5, 2, 2.6);
+    ctx.fillStyle = '#c47a62'; ctx.fillRect(5, -37.5, 3, 1.2);
+    // front arm
+    limb(1, -28, ua, 6.5, fa, 6, 4.5, '#2447ad');
+    ctx.fillStyle = '#f0c8a0';
+    const hx = 1 + Math.sin(ua) * 6.5 + Math.sin(fa) * 6, hy = -28 + Math.cos(ua) * 6.5 + Math.cos(fa) * 6;
+    ctx.beginPath(); ctx.arc(hx, hy, 2.3, 0, 7); ctx.fill();
+    ctx.restore();
+    ctx.restore();
+  }
+
+  function drawPuffs() {
+    for (const p of puffs) {
+      const k = p.t / 0.5;
+      ctx.fillStyle = `rgba(235,230,215,${0.55 * (1 - k)})`;
+      ctx.beginPath(); ctx.arc(p.x, p.y - k * 6, 3 + k * 5, 0, 7); ctx.fill();
+    }
   }
 
   function drawMap(t) {
@@ -505,6 +584,7 @@
       ctx.beginPath(); ctx.ellipse(target.x, target.y, 6 + p * 14, (6 + p * 14) * 0.5, 0, 0, 7); ctx.stroke();
     }
 
+    drawPuffs();
     // depth-sorted drawables
     const items = [];
     for (const st of STOPS) items.push([st.y, () => drawStop(st, t)]);
@@ -543,6 +623,23 @@
         c.fillStyle = grad(0, hz, '#7fc8f8', '#dff3ff'); c.fillRect(0, 0, w, hz);
         for (let i = 0; i < 9; i++) { const x = (i + 0.3) * w / 8; circ(x, hz - 20, 48 + (i % 3) * 10, i % 2 ? '#4d9e44' : '#3f8f3a'); }
         c.fillStyle = grad(hz, h, '#8ccf6f', '#5a9e46'); c.fillRect(0, hz, w, h - hz);
+        break;
+      case 'water':
+        c.fillStyle = grad(0, hz * 0.8, '#7fc8f8', '#e4f5ff'); c.fillRect(0, 0, w, hz * 0.8);
+        c.fillStyle = '#5d8f4c'; c.fillRect(0, hz * 0.62, w, hz * 0.18);
+        for (let x = -40; x < w; x += 70) { c.fillStyle = '#b8a58a'; c.fillRect(x, hz * 0.44, 50, hz * 0.2); }
+        for (let i = 0; i < 10; i++) circ((i + 0.2) * w / 9, hz * 0.64, 26, i % 2 ? '#4d9e44' : '#3f8f3a');
+        c.fillStyle = grad(hz * 0.8, h, '#5aaee6', '#1f6fb0'); c.fillRect(0, hz * 0.8, w, h - hz * 0.8);
+        c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 2;
+        for (let i = 0; i < 40; i++) {
+          const x = (i * 97) % w, y = hz * 0.85 + ((i * 53) % Math.round(h - hz * 0.85)), r = 10 + (i % 4) * 6;
+          c.beginPath(); c.moveTo(x - r, y); c.quadraticCurveTo(x, y - 5, x + r, y); c.stroke();
+        }
+        for (let x = 6; x < w; x += 58) {
+          c.strokeStyle = '#3d7a33'; c.lineWidth = 3;
+          c.beginPath(); c.moveTo(x, h); c.quadraticCurveTo(x + 4, h - 60, x + 10, h - 95); c.stroke();
+          c.fillStyle = '#6b4a2b'; c.fillRect(x + 7, h - 108, 6, 18);
+        }
         break;
       case 'school':
         c.fillStyle = grad(0, hz, '#f3ead3', '#e6dbbf'); c.fillRect(0, 0, w, hz);
@@ -621,6 +718,7 @@
   function openCatch(spawn) {
     mode = 'catch'; target = null; holding = false;
     const e = dexEntry(spawn.sp.id); e.seen++;
+    Music.play('battle'); Music.sfx('encounter');
     const L = catchLayout();
     C = {
       spawn, sp: spawn.sp, cp: spawn.cp, L, bg: buildCatchBG(spawn.zone, L),
@@ -640,6 +738,7 @@
     if (!C) return;
     if (removeSpawn) spawns = spawns.filter(s => s !== C.spawn);
     C = null; mode = 'map';
+    Music.play('map');
     $('#catch').classList.add('hidden');
     closeModal();
     updateHUD(); renderNearby(); save();
@@ -668,13 +767,18 @@
     const b = C.ball;
     if (s === 'caught') {
       finalizeCatch();
+      Music.sfx('catch');
       burst(b.ax, C.L.gy, ['★', '✦'], '#f2c14e', 16);
       catchMsg('Gotcha!');
     } else if (s === 'break') {
       burst(b.ax, C.L.gy, null, '#ffffff', 18);
       catchMsg('Oh no! It broke free!');
+      Music.sfx('break');
     } else if (s === 'fled') {
       catchMsg(`${C.sp.name} ran away!`);
+      Music.sfx('fled');
+    } else if (s === 'wobble') {
+      if (C.wobbles > 0) Music.sfx('wobble');
     } else if (s === 'idle') {
       updateCatchUI();
       if (!BALL_ORDER.some(k => S.items[k] > 0)) catchMsg('Out of balls! Spin a Stop.');
@@ -721,6 +825,7 @@
     const L = C.L;
     S.items[C.ballType]--;
     C.throws++;
+    Music.sfx('throw');
     $('#catch-hint').classList.add('hidden');
     const power = -vy, slope = vx / vy;
     const ball = { x0, y0, type: C.ballType, t: 0, hit: power >= 0.7, dur: clamp(0.85 - power * 0.1, 0.45, 0.75), mvx: vx * 300 };
@@ -760,6 +865,7 @@
     C.flee = !C.success && Math.random() < RARITY[C.sp.rarity].flee;
     b.ax = p.x; b.ay = p.y - L.R * 0.2;
     if (bonus) catchMsg(bonus);
+    Music.sfx('pop');
     setState('absorb');
   }
 
@@ -799,7 +905,7 @@
       case 'drop': if (C.st > 0.35) { setState('wobble'); C.wobblesDone = 0; } break;
       case 'wobble':
         if (C.wobblesDone >= C.wobbles) { setState(C.success ? 'caught' : 'break'); break; }
-        if (C.st > 0.9) { C.wobblesDone++; C.st = 0; }
+        if (C.st > 0.9) { C.wobblesDone++; C.st = 0; if (C.wobblesDone < C.wobbles) Music.sfx('wobble'); }
         break;
       case 'break': if (C.st > 1.0) setState(C.flee ? 'fled' : 'idle'); break;
       case 'caught': if (C.st > 1.3 && !C.resultShown) { C.resultShown = true; showCatchResult(); } break;
@@ -1048,7 +1154,8 @@
         <li>👆 <b>Encounter</b> — tap a Regimon inside your dotted circle.</li>
         <li>⚾ <b>Throw</b> — swipe the ball up at it. Land it inside the shrinking colored ring for a Nice / Great / Excellent bonus.</li>
         <li>🔷 <b>Stops</b> — tap the spinning blue diamonds near you for Regi Balls and Bagels.</li>
-        <li>🗺️ <b>Explore</b> — different Regimon live in different places. Some legends only appear at Regis or the church…</li>
+        <li>🗺️ <b>Explore</b> — every area has its own Regimon. Water types swim in the Reservoir and Turtle Pond, Grass types hide in Central Park, and some legends only appear at Regis or the church…</li>
+        <li>🔊 <b>Music</b> — tap the speaker button to turn the music on or off.</li>
       </ul>
       <button class="primary" id="help-go">${first ? "Let's go!" : 'Got it'}</button>
       <p class="fine">A fan-made game. Not affiliated with Regis High School, Nintendo, Niantic or The Pokémon Company.</p>
@@ -1078,6 +1185,17 @@
     }
     requestAnimationFrame(frame);
   }
+
+  // Browsers only allow audio after a user gesture, so start the music on the first tap or key press.
+  addEventListener('pointerdown', Music.unlock, true);
+  addEventListener('keydown', Music.unlock, true);
+  const soundBtn = $('#btn-sound');
+  const paintSound = () => {
+    soundBtn.textContent = Music.isMuted() ? '🔇' : '🔊';
+    soundBtn.setAttribute('aria-label', Music.isMuted() ? 'Turn music on' : 'Turn music off');
+  };
+  soundBtn.onclick = () => { Music.setMuted(!Music.isMuted()); paintSound(); };
+  paintSound();
 
   resize();
   updateHUD();

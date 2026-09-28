@@ -27,7 +27,17 @@ window.RG = (() => {
   const ZONES = {
     park: 'Central Park', museum: 'The Met', school: 'Regis High School',
     church: 'St. Ignatius Loyola', subway: '86th St Station', street: 'Upper East Side',
-    any: 'Everywhere',
+    water: 'The Reservoir & Turtle Pond', any: 'Everywhere',
+  };
+
+  const ZONE_HINTS = {
+    water: 'Water-type Regimon swim here 💧',
+    park: 'Grass-type Regimon hide in the trees 🌳',
+    school: 'Brainy Regimon roam the halls 📚',
+    church: 'Spirit-type Regimon gather here ✨',
+    museum: 'Ancient Regimon lurk in the galleries 🏺',
+    subway: 'Steel and Dark Regimon ride the rails 🚇',
+    street: 'City Regimon roam the avenues 🚕',
   };
 
   const STOPS = [
@@ -38,6 +48,7 @@ window.RG = (() => {
     { id: 'chapel', name: 'St. Ignatius Loyola', x: 1890, y: 690, icon: '⛪', blurb: 'Go forth and set the world on fire.' },
     { id: 'met', name: 'The Met Steps', x: 575, y: 420, icon: '🖼️', blurb: 'Two million works of art, and at least one Armorillo.' },
     { id: 'dendur', name: 'Temple of Dendur', x: 490, y: 150, icon: '🏺', blurb: 'Built around 15 B.C. Dendurtle has been here the whole time.' },
+    { id: 'castle', name: 'Belvedere Castle', x: 335, y: 612, icon: '🏰', blurb: 'Overlooks Turtle Pond. Belveturtle insists it owns the place.' },
     { id: 'lawn', name: 'Great Lawn', x: 250, y: 450, icon: '🌳', blurb: 'Perfect for a free period. Watch out for Squirrelios.' },
     { id: 'reservoir', name: 'Reservoir Track', x: 300, y: 972, icon: '🏃', blurb: '1.58 miles around. Reservortex does it in 40 seconds.' },
     { id: 'tulips', name: 'Park Ave Tulips', x: 1640, y: 1080, icon: '🌷', blurb: 'The median blooms every spring. So do the Parkavenewts.' },
@@ -84,7 +95,7 @@ window.RG = (() => {
       desc: 'Watches exams in total silence. Its quills point at anyone glancing at a neighbor.' },
     { id: 17, name: 'Subwayrm', types: ['Steel'], rarity: 3, habitat: ['subway', 'street'], body: 'worm', color: '#9aa5b1', belly: '#dfe5ec', extras: ['antenna'], acc: '🚇', accPos: 'head',
       desc: 'Rides the 4/5/6 under Lexington. Only appears when you are already late for homeroom.' },
-    { id: 18, name: 'Reservortex', types: ['Water'], rarity: 3, habitat: ['park'], body: 'round', color: '#3b82f6', belly: '#bfdbfe', extras: ['fin'], acc: '💧', accPos: 'hand',
+    { id: 18, name: 'Reservortex', types: ['Water'], rarity: 3, habitat: ['water', 'park'], body: 'round', color: '#3b82f6', belly: '#bfdbfe', extras: ['fin'], acc: '💧', accPos: 'hand',
       desc: 'Laps the Central Park Reservoir two hundred times a day and never gets tired.' },
     { id: 19, name: 'Armorillo', types: ['Steel'], rarity: 3, habitat: ['museum'], body: 'wide', color: '#8d8f99', belly: '#d9dbe3', ears: 'round', extras: ['shell'], acc: '🛡️', accPos: 'hand',
       desc: 'Escaped from the Arms and Armor wing at the Met. Clanks when it walks.' },
@@ -100,7 +111,63 @@ window.RG = (() => {
       desc: 'LEGENDARY. "Go set the world on fire." Its roar echoes all the way down 84th Street.' },
     { id: 25, name: 'Regisaurus', types: ['Royal'], rarity: 5, habitat: ['school'], body: 'tall', color: '#2c3e8f', belly: '#c9d3ff', extras: ['crest', 'tail', 'teeth'], acc: '👑', accPos: 'head',
       desc: 'LEGENDARY. "Regis" means "of the King" — and the King of 84th Street never lets you forget it.' },
+
+    // ---- The Reservoir & Turtle Pond (water) ----
+    { id: 26, name: 'Tadpolemic', types: ['Water'], rarity: 1, habitat: ['water'], body: 'round', color: '#5b8def', belly: '#cfe0ff', extras: ['tailfin'], acc: '💬', accPos: 'hand',
+      desc: 'Argues with every other tadpole in the Reservoir. Captain of the debate team.' },
+    { id: 27, name: 'Quackademic', types: ['Water', 'Flying'], rarity: 1, habitat: ['water', 'park'], body: 'round', color: '#f3f1e7', belly: '#ffffff', extras: ['wings', 'bill', 'glasses'], acc: '📚', accPos: 'hand',
+      desc: 'Wears its reading glasses even while swimming. Quacks in perfect iambic pentameter.' },
+    { id: 28, name: 'Joggerfish', types: ['Water'], rarity: 2, habitat: ['water'], body: 'tall', color: '#ff7a59', belly: '#ffd3c4', extras: ['tailfin', 'headband'], acc: '⏱️', accPos: 'hand',
+      desc: 'Runs laps around the Reservoir at 6 a.m. sharp. Has never once been late to first period.' },
+    { id: 29, name: 'Belveturtle', types: ['Water', 'Ancient'], rarity: 3, habitat: ['water'], body: 'wide', color: '#6a9a5b', belly: '#dcebc8', extras: ['shell'], acc: '🏰', accPos: 'hand',
+      desc: 'Guards Turtle Pond from the shadow of Belvedere Castle. Claims the castle belongs to it.' },
+    { id: 30, name: 'Swanctus', types: ['Water', 'Spirit'], rarity: 3, habitat: ['water'], body: 'tall', color: '#f4f4fb', belly: '#ffffff', extras: ['wings', 'beak'], acc: '🎶', accPos: 'head',
+      desc: 'Glides across the water humming Gregorian chant. Its song calms even a Detentiopus.' },
+    { id: 31, name: 'Koinē', types: ['Water', 'Classic'], rarity: 3, habitat: ['water'], body: 'wide', color: '#ff9f1c', belly: '#fff1d6', extras: ['tailfin', 'fin'], acc: 'Ω', accPos: 'hand',
+      desc: 'A koi that speaks only Koine Greek. Translates the New Testament for fun.' },
+    { id: 32, name: 'Aquinautilus', types: ['Water', 'Brainy'], rarity: 4, habitat: ['water'], body: 'round', color: '#e07a5f', belly: '#fbe3d6', extras: ['spiral', 'tentacles'], acc: '📘', accPos: 'hand',
+      desc: 'Its shell spirals like the Summa Theologica — five proofs deep and still going.' },
+
+    // ---- Central Park (grass) ----
+    { id: 33, name: 'Frisbeaver', types: ['Normal', 'Grass'], rarity: 2, habitat: ['park'], body: 'round', color: '#8a5a3b', belly: '#d9b48f', ears: 'round', extras: ['tail', 'teeth'], acc: '🥏', accPos: 'hand',
+      desc: 'Never misses a catch on the Great Lawn. Chews through one frisbee a day.' },
+    { id: 34, name: 'Dandelyon', types: ['Grass'], rarity: 2, habitat: ['park'], body: 'round', color: '#f2b705', belly: '#fff3c4', extras: ['mane', 'tail'], acc: '🌼', accPos: 'hand',
+      desc: 'Its mane blows away in the spring breeze and grows back by Monday.' },
+    { id: 35, name: 'Oakolyte', types: ['Grass', 'Spirit'], rarity: 3, habitat: ['park', 'church'], body: 'tall', color: '#6b8e4e', belly: '#d8e7c0', ears: 'tufts', acc: '🌳', accPos: 'head',
+      desc: 'An acorn that served Mass so faithfully it grew into a mighty oak.' },
+
+    // ---- the streets ----
+    { id: 36, name: 'Taxicrab', types: ['Normal', 'Steel'], rarity: 2, habitat: ['street'], body: 'wide', color: '#f4c20d', belly: '#fff2b3', extras: ['claws', 'antenna'], acc: '🚕', accPos: 'hand',
+      desc: 'Scuttles sideways across Park Avenue. Its off-duty light is always on when you need it.' },
+    { id: 37, name: 'Hotdachs', types: ['Normal', 'Fire'], rarity: 2, habitat: ['street'], body: 'wide', color: '#b5562d', belly: '#f3c89b', ears: 'floppy', extras: ['tail'], acc: '🌭', accPos: 'hand',
+      desc: 'Follows the hot dog cart up Fifth Avenue. Extra mustard, always.' },
+    { id: 38, name: 'Doormanatee', types: ['Water', 'Normal'], rarity: 3, habitat: ['street'], body: 'wide', color: '#8e9aaf', belly: '#dfe4ee', extras: ['cap', 'snout'], acc: '🗝️', accPos: 'hand',
+      desc: 'Holds doors on Park Avenue with a polite nod. Knows every resident by name.' },
+
+    // ---- the subway ----
+    { id: 39, name: 'MetroCardinal', types: ['Flying', 'Steel'], rarity: 2, habitat: ['subway', 'street'], body: 'round', color: '#d62828', belly: '#ffc2c2', ears: 'tufts', extras: ['wings', 'beak'], acc: '💳', accPos: 'hand',
+      desc: 'Swipes through the turnstile on the first try. Every single time.' },
+    { id: 40, name: 'Pizzarat', types: ['Dark', 'Normal'], rarity: 2, habitat: ['subway'], body: 'round', color: '#8d8d99', belly: '#e1dfe8', ears: 'round', extras: ['tail'], acc: '🍕', accPos: 'hand',
+      desc: 'Dragged a whole slice down the stairs at 86th Street. A true New York legend.' },
+
+    // ---- the church ----
+    { id: 41, name: 'Pewsqueak', types: ['Spirit', 'Normal'], rarity: 1, habitat: ['church'], body: 'round', color: '#b8a99a', belly: '#efe7df', ears: 'round', extras: ['tail'], acc: '📿', accPos: 'hand',
+      desc: 'Lives under the back pew. Always the first to arrive for Mass.' },
+    { id: 42, name: 'Organgutan', types: ['Spirit', 'Electric'], rarity: 3, habitat: ['church'], body: 'round', color: '#d9772b', belly: '#f6c79a', ears: 'round', acc: '🎹', accPos: 'hand',
+      desc: 'Plays the great pipe organ at St. Ignatius so loudly it rattles the stained glass.' },
+
+    // ---- the Met ----
+    { id: 43, name: 'Monetkey', types: ['Brainy', 'Normal'], rarity: 2, habitat: ['museum'], body: 'round', color: '#a8784f', belly: '#f0d5b5', ears: 'round', extras: ['tail'], acc: '🎨', accPos: 'hand',
+      desc: 'Paints water lilies all day long and signs every canvas with a banana.' },
+    { id: 44, name: 'Mummichog', types: ['Ghost', 'Ancient'], rarity: 3, habitat: ['museum'], body: 'wide', color: '#e8e0c8', belly: '#f7f2e2', extras: ['tailfin', 'wraps'], acc: '⚱️', accPos: 'hand',
+      desc: 'A little fish that slipped into the Egyptian wing 3,000 years ago and never left.' },
+
+    // ---- Regis ----
+    { id: 45, name: 'Bunsenbunny', types: ['Fire', 'Brainy'], rarity: 2, habitat: ['school'], body: 'round', color: '#f7b2bd', belly: '#fff0f3', ears: 'bunny', extras: ['glasses'], acc: '🧪', accPos: 'hand',
+      desc: 'Runs chemistry labs out of a hollowed-out beaker. Safety goggles on at all times.' },
+    { id: 46, name: 'Theologecko', types: ['Spirit', 'Brainy'], rarity: 2, habitat: ['school', 'church'], body: 'tall', color: '#58b09c', belly: '#d1f2e8', extras: ['tail'], acc: '🕊️', accPos: 'hand',
+      desc: 'Can recite the Nicene Creed backwards. Sticks to the ceiling during Theology class.' },
   ];
 
-  return { W, H, TYPES, RARITY, BALLS, ZONES, STOPS, SPECIES };
+  return { W, H, TYPES, RARITY, BALLS, ZONES, ZONE_HINTS, STOPS, SPECIES };
 })();

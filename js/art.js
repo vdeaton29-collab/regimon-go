@@ -74,6 +74,21 @@ window.RGArt = (() => {
     }
     if (X('tentacles')) for (let i = 0; i < 5; i++)
       back += `<ellipse cx="${cx - rx * 0.8 + i * rx * 0.4}" cy="${cy + ry - 3}" rx="5.5" ry="11" fill="${c}" ${st}/>`;
+    if (X('tailfin'))
+      back += `<polygon points="${cx + rx - 6},${cy + 2} ${cx + rx + 17},${cy - 15} ${cx + rx + 12},${cy + 2} ${cx + rx + 17},${cy + 19}" fill="${d}" stroke-linejoin="round"/>`;
+    if (X('claws')) for (const s of [-1, 1]) {
+      const x = cx + s * (rx + 7), y = cy - 8;
+      back += `<line x1="${cx + s * rx * 0.8}" y1="${cy}" x2="${x}" y2="${y + 4}" stroke="${d}" stroke-width="5" stroke-linecap="round"/>`;
+      back += `<circle cx="${x}" cy="${y}" r="9" fill="${c}" ${st}/><path d="M${x},${y} L${x + s * 7},${y - 7}" stroke="${d}" stroke-width="3" stroke-linecap="round"/>`;
+    }
+    if (X('mane')) for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * Math.PI * 2;
+      back += `<circle cx="${(cx + Math.cos(a) * (rx + 3)).toFixed(1)}" cy="${(cy - 3 + Math.sin(a) * (ry + 2)).toFixed(1)}" r="8" fill="${i % 2 ? '#ffffff' : '#ffe98a'}" stroke="#e0b100" stroke-width="1.2"/>`;
+    }
+    if (X('spiral')) {
+      back += `<circle cx="${cx + 8}" cy="${cy - 8}" r="${ry + 4}" fill="${l}" ${st}/>`;
+      back += `<path d="M${cx + 8},${cy - 8} m-4,0 a4,4 0 1,1 8,0 a8,8 0 1,1 -16,0 a13,13 0 1,1 26,0 a19,19 0 1,1 -38,0" fill="none" stroke="${d}" stroke-width="2.2"/>`;
+    }
     if (X('antenna')) for (const s of [-1, 1])
       back += `<line x1="${cx + s * 5}" y1="${top + 3}" x2="${cx + s * 12}" y2="${top - 11}" stroke="${d}" stroke-width="2.5" stroke-linecap="round"/><circle cx="${cx + s * 12}" cy="${top - 12}" r="3.5" fill="${l}" ${st}/>`;
 
@@ -98,6 +113,10 @@ window.RGArt = (() => {
       front += `<path d="M${cx + s * rx * 0.97},${cy - 6 + k * 9} L${cx + s * rx * 0.64},${cy - 3 + k * 9}" stroke="${d}" stroke-width="3" stroke-linecap="round"/>`;
     if (X('stripes'))
       front += `<path d="M${cx - 5},${top + 3} L${cx - 3},${top + 9} M${cx},${top + 1} L${cx},${top + 8} M${cx + 5},${top + 3} L${cx + 3},${top + 9}" stroke="${d}" stroke-width="2.5" stroke-linecap="round"/>`;
+    if (X('wraps')) for (let k = 0; k < 4; k++)
+      front += `<path d="M${cx - rx * 0.95},${cy - ry * 0.35 + k * ry * 0.33} Q${cx},${cy - ry * 0.2 + k * ry * 0.33} ${cx + rx * 0.95},${cy - ry * 0.45 + k * ry * 0.33}" stroke="${d}" stroke-width="2" fill="none" opacity=".45"/>`;
+    if (X('headband'))
+      front += `<rect x="${cx - rx * 0.92}" y="${top + 7}" width="${rx * 1.84}" height="6" rx="3" fill="#e63946"/><path d="M${cx + rx * 0.85},${top + 10} l8,-5 m-8,5 l9,3" stroke="#e63946" stroke-width="3" stroke-linecap="round"/>`;
     if (X('collar'))
       front += `<rect x="${cx - rx * 0.55}" y="${ey + 15}" width="${rx * 1.1}" height="6" rx="3" fill="#1b1b2f"/><rect x="${cx - 3}" y="${ey + 15.5}" width="6" height="5" fill="#fff"/>`;
     if (X('snout')) {
@@ -117,11 +136,15 @@ window.RGArt = (() => {
       front += `<circle cx="${x + s * 0.8}" cy="${ey + 1}" r="${er * 0.56}" fill="#1b1b2f"/>`;
       front += `<circle cx="${x - er * 0.2}" cy="${ey - er * 0.3}" r="${er * 0.22}" fill="#fff"/>`;
       front += `<ellipse cx="${cx + s * (ex + 9)}" cy="${ey + 8}" rx="4" ry="2.4" fill="#ff8fa3" opacity=".6"/>`;
+      if (X('glasses')) front += `<circle cx="${x}" cy="${ey}" r="${er + 2.5}" fill="rgba(200,230,255,.25)" stroke="#1b1b2f" stroke-width="2"/>`;
     }
+    if (X('glasses')) front += `<path d="M${cx - ex + er + 2},${ey - 1} Q${cx},${ey - 4} ${cx + ex - er - 2},${ey - 1}" stroke="#1b1b2f" stroke-width="2" fill="none"/>`;
 
     // mouth
     if (X('beak')) {
       front += `<polygon points="${cx - 4.5},${ey + 6} ${cx + 4.5},${ey + 6} ${cx},${ey + 13}" fill="#f4a13a" stroke="#b86e12" stroke-width="1"/>`;
+    } else if (X('bill')) {
+      front += `<ellipse cx="${cx}" cy="${ey + 11}" rx="10" ry="4.5" fill="#f4a13a" stroke="#b86e12" stroke-width="1"/><path d="M${cx - 8},${ey + 11} L${cx + 8},${ey + 11}" stroke="#b86e12" stroke-width="1"/>`;
     } else if (!X('snout')) {
       front += `<path d="M${cx - 5},${ey + 10} Q${cx},${ey + 15} ${cx + 5},${ey + 10}" stroke="${d}" stroke-width="2" fill="none" stroke-linecap="round"/>`;
       if (X('teeth')) front += `<polygon points="${cx - 4},${ey + 11} ${cx - 1},${ey + 11.8} ${cx - 2.6},${ey + 14.5}" fill="#fff"/><polygon points="${cx + 4},${ey + 11} ${cx + 1},${ey + 11.8} ${cx + 2.6},${ey + 14.5}" fill="#fff"/>`;
@@ -129,6 +152,8 @@ window.RGArt = (() => {
 
     if (X('hat'))
       front += `<polygon points="${cx - 17},${top + 7} ${cx + 3},${top - 24} ${cx + 17},${top + 7}" fill="#3b1f7a" stroke="#241050" stroke-width="2" stroke-linejoin="round"/><ellipse cx="${cx}" cy="${top + 7}" rx="21" ry="5" fill="#2a1260"/><text x="${cx + 1}" y="${top - 3}" font-size="10" text-anchor="middle" fill="#f2c14e">★</text>`;
+    if (X('cap'))
+      front += `<rect x="${cx - 14}" y="${top - 9}" width="28" height="13" rx="4" fill="#1f3a93"/><rect x="${cx - 14}" y="${top}" width="28" height="3" fill="#f2c14e"/><ellipse cx="${cx}" cy="${top + 5}" rx="18" ry="3.5" fill="#1b1b2f"/>`;
     if (X('flame'))
       front += `<line x1="${cx}" y1="${top + 1}" x2="${cx}" y2="${top - 6}" stroke="#333" stroke-width="2"/><path d="M${cx},${top - 26} Q${cx + 11},${top - 10} ${cx},${top - 4} Q${cx - 11},${top - 10} ${cx},${top - 26}Z" fill="#ff8a1f"/><path d="M${cx},${top - 18} Q${cx + 5},${top - 9} ${cx},${top - 6} Q${cx - 5},${top - 9} ${cx},${top - 18}Z" fill="#ffe066"/>`;
 

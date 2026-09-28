@@ -1,8 +1,9 @@
 # 👑 Regimon GO
 
 A Pokémon GO–style catching game set around **Regis High School** on the Upper East Side of Manhattan.
-Walk around 84th Street, spin stops, and catch 25 original Regis-themed creatures, from the humble
-**Homeworm** to the legendary **Ignatiger** and **Regisaurus**.
+Walk around 84th Street, spin stops, and catch 46 original Regis-themed creatures, from the humble
+**Homeworm** to the legendary **Ignatiger** and **Regisaurus**. Includes a chiptune soundtrack and
+sound effects, synthesized live with Web Audio.
 
 **▶ Play:** https://vdeaton29-collab.github.io/regimon-go/
 
@@ -16,9 +17,17 @@ Walk around 84th Street, spin stops, and catch 25 original Regis-themed creature
 | 🔷 **Stops** | Spin the blue diamonds for Regi Balls, Honors Balls, Magna Cum Balls and Bagels |
 | 🥯 **Bagels** | Feed one before throwing to make the next catch easier |
 
-Each area has its own Regimon. Look for Owlgebra and Quizard inside Regis, Jesuitoad and Candlewick at
-St. Ignatius Loyola, Armorillo and Dendurtle at the Met, Squirrelio and Reservortex in Central Park,
-and Subwayrm down at 86th St.
+Each area has its own Regimon:
+
+| Area | Look for |
+|---|---|
+| 💧 The Reservoir & Turtle Pond | Tadpolemic, Quackademic, Joggerfish, Belveturtle, Swanctus, Koinē, Aquinautilus |
+| 🌳 Central Park | Squirrelio, Frisbeaver, Dandelyon, Oakolyte |
+| 📚 Regis High School | Owlgebra, Quizard, Chalkodile, Bunsenbunny, Scholarshark, Regisaurus |
+| ✨ St. Ignatius Loyola | Jesuitoad, Candlewick, Pewsqueak, Organgutan, AMDGator, Ignatiger |
+| 🏺 The Met | Armorillo, Monetkey, Mummichog, Dendurtle |
+| 🚇 86th St Station | Subwayrm, Pizzarat, MetroCardinal |
+| 🚕 The avenues | Bagelhog, Taxicrab, Hotdachs, Doormanatee |
 
 Your progress (Regidex, catches, items, level) is saved in your browser.
 
@@ -32,6 +41,7 @@ index.html     page and UI shell
 style.css      styles
 js/data.js     creatures, stops, world constants
 js/art.js      procedural creature art
+js/music.js    chiptune music + sound effects (Web Audio)
 js/game.js     map, spawning, catching, Regidex
 ```
 
