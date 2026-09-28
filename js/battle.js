@@ -95,7 +95,7 @@ window.RGBattle = (() => {
       sp, level: L, entry, maxHp, hp: maxHp,
       atk: 2 * b.atk * L / 100 + 5, def: 2 * b.def * L / 100 + 5,
       energy: 0, st: { atk: 0, def: 0 }, burn: 0, burnAcc: 0, stun: 0,
-      fast: mv.fast, charged: mv.charged,
+      fast: mv.fast, charged: mv.charged, shiny: !!(entry && entry.shiny),
     };
   }
   const stage = s => (s >= 0 ? 1 + 0.25 * s : 1 / (1 + 0.25 * -s));
@@ -355,7 +355,7 @@ window.RGBattle = (() => {
           return `<button class="card ${i >= 0 ? 'on' : ''}" data-uid="${c.uid}">
             ${i >= 0 ? `<span class="order">${i + 1}</span>` : ''}
             <span class="cp">Lv ${levelFromCP(c.cp)} · CP ${c.cp}</span>
-            <img src="${G.Art.url(sp)}" alt=""><span class="nm">${sp.name}</span>
+            <img src="${G.Art.url(sp, c.shiny)}" alt=""><span class="nm">${c.shiny ? '✨ ' : ''}${sp.name}</span>
             <span class="mini-types">${sp.types.map(t => `<i style="background:${G.TYPES[t]}"></i>`).join('')}</span></button>`;
         }).join('')}</div>
         <div class="row sticky"><button class="primary" id="ch-go" ${picked.length ? '' : 'disabled'}>⚔️ Battle!</button></div>
@@ -412,8 +412,8 @@ window.RGBattle = (() => {
     $(`#${pre}-lv`).textContent = `Lv ${m.level}`;
     $(`#${pre}-types`).innerHTML = m.sp.types.map(typeChip).join('');
     const img = $(`#${pre}-img`);
-    img.src = G.Art.url(m.sp);
-    img.className = `b-mon ${si ? '' : 'mine'} ${m.sp.rarity >= 4 ? 'elite' : ''} enter`;
+    img.src = G.Art.url(m.sp, m.shiny);
+    img.className = `b-mon ${si ? '' : 'mine'} ${m.sp.rarity >= 4 || m.shiny ? 'elite' : ''} enter`;
     img.style.setProperty('--glow', m.sp.glow || G.TYPES[m.sp.types[0]]);
     if (!si) {
       m.charged.forEach((mv, i) => {
@@ -696,7 +696,7 @@ window.RGBattle = (() => {
       const el = $('#b-pick'), side = B.sides[0];
       el.innerHTML = `<div class="pick-box"><b>${forced ? 'Choose your next Regimon' : 'Switch Regimon'}</b>
         ${side.team.map((m, i) => `<button class="pick-row" data-i="${i}" ${m.hp <= 0 || i === side.i ? 'disabled' : ''}>
-          <img src="${G.Art.url(m.sp)}" alt=""><span><b>${m.sp.name}</b><small>Lv ${m.level} · ${Math.ceil(m.hp)}/${m.maxHp} HP · ⚡${Math.floor(m.energy)}${m.hp <= 0 ? ' · fainted' : ''}</small>
+          <img src="${G.Art.url(m.sp, m.shiny)}" alt=""><span><b>${m.sp.name}</b><small>Lv ${m.level} · ${Math.ceil(m.hp)}/${m.maxHp} HP · ⚡${Math.floor(m.energy)}${m.hp <= 0 ? ' · fainted' : ''}</small>
           <span class="mini-types">${m.sp.types.map(t => `<i style="background:${G.TYPES[t]}"></i>`).join('')}</span></span></button>`).join('')}
         ${forced ? '' : '<button class="ghost" id="pick-cancel">Cancel</button>'}</div>`;
       el.classList.remove('hidden');

@@ -1,0 +1,14 @@
+{
+  "name": "Regimon GO",
+  "short_name": "Regimon GO",
+  "description": "A Regis High School themed catch-'em-all game across Manhattan and Hudson County.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#14204a",
+  "theme_color": "#14204a",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

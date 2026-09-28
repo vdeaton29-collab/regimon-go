@@ -1,91 +1,68 @@
 # 👑 Regimon GO
 
-A Pokémon GO–style catching game set around **Regis High School** on the Upper East Side of Manhattan.
-Explore the neighborhood from 83rd to 96th Street and from Central Park to the East River, spin stops, and
-catch 80 original Regis-themed creatures, from the humble **Homeworm** to elite Regimon like **Wyrmhattan**
-and **Solregis**. Then fight AI trainers in real-time battles, win badges from nine arena leaders, and climb
-the ranked Battle League. Includes a chiptune soundtrack and per-type attack effects and sounds, all
-generated live in code.
+A Pokémon GO–style catching game that starts at **Regis High School** on 84th Street and covers
+**all of Manhattan from 97th Street down to the Battery**, the harbor islands, and **Hoboken, Jersey City,
+Union City and Weehawken** across the Hudson. Catch 103 original Regimon, from the humble **Homeworm** to the
+Celestial **Metropolaris** and **Libertitan**, then fight AI trainers in real-time battles.
 
-**▶ Play:** https://vdeaton29-collab.github.io/regimon-go/
+**▶ Play:** https://vdeaton29-collab.github.io/regimon-go/ (installable, and works offline after the first visit)
 
-## How to play
+## Two ways to play
 
-| | |
+| Mode | How it works |
 |---|---|
-| 🚶 **Walk** | Tap or hold on the map, or use WASD / arrow keys |
-| 👆 **Encounter** | Tap a Regimon inside your dotted circle |
-| ⚾ **Throw** | Swipe the ball upward. Land it inside the shrinking ring for a Nice / Great / Excellent bonus |
-| 🔷 **Stops** | Spin the blue diamonds for Regi Balls, Honors Balls, Magna Cum Balls and Bagels |
-| 🥯 **Bagels** | Feed one before throwing to make the next catch easier |
-| 🗺️ **Map** | Open the overview map and tap anywhere to walk there |
+| 🎮 **Explore** | Tap or hold the map (or use WASD / arrow keys) to walk. Open the map to fast-travel anywhere. Works offline. |
+| 🛰️ **Live GPS** | Your real location moves you. Walk around Manhattan or Hudson County to find Regimon near you. Your browser will ask for location access. |
 
-## Battles
+Switch modes any time from the 👑 menu or the mode badge in the top-left corner. Pinch or scroll to zoom the map.
+Stay aware of your surroundings when playing in Live mode.
 
-Battles are real-time, like Pokémon GO's battle league:
+## The map
 
-- **Hold** the field or the 👊 button to use your **fast attack**. Each hit builds ⚡ **energy points**.
-- Spend energy on one of two **special attacks**. The button lights up when you can afford it. Time the
-  power meter for up to 100% damage. Some special attacks burn, stun, drain HP, raise your attack or lower
-  the foe's defense.
-- Each side has **2 shields** that block a special attack. Smart opponents try to bait your shields out with
-  cheap attacks before firing their big one.
-- **Switch** Regimon every 30 seconds. Type matchups matter: super-effective hits deal 1.6× damage.
-- Elite and legendary Regimon have a ★ **signature ability**, such as *Skyline Breaker*, *Crown of the Sun*
-  or *Hell Gate Maelstrom*.
-- Every Regimon that fights gains CP.
-
-Keyboard: hold **Space** to attack, **1** / **2** for special attacks, **S** to shield.
-
-### Arena leaders
-
-| # | Arena | Leader |
-|---|---|---|
-| 1 | Great Lawn | Ranger Rosa |
-| 2 | Regis Gym | Coach Malone |
-| 3 | Second Ave Station | Conductor Kay |
-| 4 | Guggenheim | Curator Vance |
-| 5 | Asphalt Green | Captain Ruiz |
-| 6 | Gracie Mansion | The Mayor |
-| 7 | 92NY | Maestro Lin |
-| 8 | Cooper Hewitt | Designer Okafor |
-| 9 | Mill Rock Island | The River Keeper (champion) |
-
-### Battle League
-
-Ranked battles against AI trainers near your rating. Win points to climb Freshman → Sophomore → Junior →
-Senior → Varsity → Captain → Valedictorian. Opponents get stronger and smarter as your rating rises.
-
-## Where to find Regimon
+Real geography: the tilted Manhattan street grid with every numbered street and avenue, Broadway, Central Park
+(the Reservoir, the Great Lawn, the Lake), the High Line, the bridges, and more than 100 landmarks.
+Every landmark is a stop. Each neighborhood has its own Regimon:
 
 | Area | Look for |
 |---|---|
-| 💧 The Reservoir & Turtle Pond | Tadpolemic, Quackademic, Joggerfish, Belveturtle, Swanctus, Koinē, Aquinautilus, Onyxolotl |
-| 🌳 Central Park | Squirrelio, Frisbeaver, Dandelyon, Oakolyte, Umbrawolf, Stormcaw |
-| 📚 Regis High School | Owlgebra, Quizard, Chalkodile, Bunsenbunny, Scholarshark, Scholardrake, Regisaurus, Solregis |
-| ✨ St. Ignatius, Heavenly Rest & the Islamic Cultural Center | Jesuitoad, Candlewick, Pewsqueak, Organgutan, Seraphalcon, Pyrrhonix, AMDGator, Ignatiger |
-| 🏺 The Met, Guggenheim, Cooper Hewitt & Jewish Museum | Armorillo, Monetkey, Mummichog, Spiralynx, Abstractopus, Gearadon, Aegisaurus, Dendurtle |
-| 🎼 92NY | Crescendragon, Frostbyte, Chimechu |
-| 🚇 86th & 96th St stations | Subwayrm, Pizzarat, MetroCardinal, Voltergeist, Magmalith |
-| 🚕 The avenues, Yorkville & Carnegie Hill | Bagelhog, Taxicrab, Hotdachs, Doormanatee, Pretzeleon, Hydrantula, Bodegato, and the legendary Wyrmhattan |
-| 🌊 The East River & Mill Rock | Tugotter, Gatekeel, Seagullible, Ferryt, Tempestar, Kraketeer, Riftdrake, and the legendary Mayorca |
-| 🏅 Asphalt Green, the Ballfields & Tennis Center | Dribbluff, Goaliebear, Sprintah, Poolphin, Crewcoon, Glaciator, Victorhino |
+| 🏙️ Midtown | Neonoir, Skyscraptor, Vesselith, Chronowl, and the Mythic Empyreon |
+| 📈 Financial District | Bullion, Bearish, Tickertaper, Oculuxe, and the Celestial Metropolaris |
+| 🗽 New York Harbor | Ellisprite, Tugotter, and the Celestial Libertitan |
+| 🌉 Hoboken, Jersey City & Union City | Cannolisk, Palisaur, Salsamander, Hamiltron, Pathfinder |
+| 🏮 Chinatown | The Legendary Lanternwyrm |
+| 🌊 The Hudson & East Rivers | Hudsonyx, Kraketeer, Riftdrake, Bridgoyle, Gatekeel, Mayorca |
+| 🚇 Subway & PATH stations | Subwayrm, Pizzarat, Voltergeist, Magmalith, and the Mythic Voidrail |
+| 📚 Regis & other schools | Owlgebra, Quizard, Scholardrake, Regisaurus, Solregis |
+| 🌳 Parks | Squirrelio, Highlinx, Umbrawolf, and the Mythic Solhenge |
 
-Your progress (Regidex, catches, items, badges, league rating) is saved in your browser.
+**Rarities:** Very Common → Common → Uncommon → Rare → Legendary → **Mythic** → **Celestial**. The rarest appear
+under a beam of light. About 1 in 64 Regimon is a ✨ **shiny** with different colors.
+
+## Battles
+
+Real-time, like Pokémon GO's battle league: hold to fast-attack and build ⚡ energy, spend it on special attacks
+(time the meter for full power), and use your 2 🛡️ shields wisely. Elite Regimon have ★ signature abilities
+with their own effects and sounds. Beat all **15 arena leaders**, from Ranger Rosa on the Great Lawn to the
+Harbor Guardian on Liberty Island, and climb the ranked **Battle League** from Freshman to Valedictorian.
 
 ## Tech
 
-Plain HTML, CSS and JavaScript with no build step and no dependencies. Every creature is drawn as SVG in
-code, the map is canvas tiles drawn on demand, and all music and sound effects are synthesized with Web Audio.
+Plain HTML, CSS and JavaScript with no build step and no dependencies. The map is drawn from hand-entered
+geography (shorelines, street grids, parks, landmarks) projected from latitude and longitude, so GPS positions
+line up with it. Every creature is SVG drawn in code, and all music and sound is synthesized with Web Audio.
+A service worker caches the game for offline play.
 
 ```
-index.html     page and UI shell
-style.css      styles
-js/data.js     creatures, stops, arenas, world constants
-js/art.js      procedural creature art
-js/music.js    chiptune music, attack sounds and effects (Web Audio)
-js/battle.js   real-time battles: energy, shields, type chart, AI, particle effects
-js/game.js     map, spawning, catching, Regidex, Battle League
+index.html            page and UI shell
+style.css             styles
+sw.js                 offline cache (service worker)
+manifest.webmanifest  install as an app
+js/geo.js             geography: projection, shorelines, grids, parks, landmarks
+js/data.js            creatures, rarities, arenas
+js/art.js             procedural creature art (and shiny variants)
+js/music.js           chiptune music, attack sounds and effects
+js/battle.js          real-time battles: energy, shields, type chart, AI, particle effects
+js/game.js            map rendering, GPS, spawning, catching, Regidex, Battle League
 ```
 
 To run it locally, serve the folder with any static server, for example `python -m http.server`, then open http://localhost:8000.
@@ -93,4 +70,4 @@ To run it locally, serve the folder with any static server, for example `python 
 ---
 
 *A fan-made game. It is not affiliated with Regis High School, Nintendo, Niantic or The Pokémon Company.
-All creatures are original.*
+All creatures are original. Map geometry is approximate.*

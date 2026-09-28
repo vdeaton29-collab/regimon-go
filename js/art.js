@@ -32,9 +32,17 @@ window.RGArt = (() => {
     const defs = `<defs>
       <radialGradient id="au${sp.id}"><stop offset="0" stop-color="${glow}" stop-opacity=".7"/><stop offset=".55" stop-color="${glow}" stop-opacity=".25"/><stop offset="1" stop-color="${glow}" stop-opacity="0"/></radialGradient>
       <linearGradient id="bg${sp.id}" x1="0" y1="0" x2=".3" y2="1"><stop offset="0" stop-color="${shade(c, 0.35)}"/><stop offset=".55" stop-color="${c}"/><stop offset="1" stop-color="${shade(c, -0.45)}"/></linearGradient>
+      <filter id="nf${sp.id}" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="2.2"/></filter>
     </defs>`;
 
     if (X('aura')) back += `<circle cx="50" cy="56" r="49" fill="url(#au${sp.id})"/>`;
+    if (X('rays')) for (let i = 0; i < 9; i++) {
+      const a = (-170 + i * 20) * Math.PI / 180, bx = cx, by = top + 12;
+      const p = (r, da) => `${(bx + Math.cos(a + da) * r).toFixed(1)},${(by + Math.sin(a + da) * r).toFixed(1)}`;
+      back += `<polygon points="${p(14, -0.12)} ${p(i % 2 ? 30 : 38, 0)} ${p(14, 0.12)}" fill="${glow}" opacity="${i % 2 ? 0.55 : 0.85}"/>`;
+    }
+    if (X('neon'))
+      back += `<ellipse cx="${cx}" cy="${cy}" rx="${rx + 3}" ry="${ry + 3}" fill="none" stroke="${glow}" stroke-width="5" filter="url(#nf${sp.id})"/>`;
     back += `<ellipse cx="50" cy="94" rx="27" ry="4" fill="rgba(0,0,0,.18)"/>`;
 
     // elite features drawn behind the body
@@ -222,24 +230,54 @@ window.RGArt = (() => {
       front += `<text x="${ax}" y="${ay}" font-size="${sp.accPos === 'head' ? 19 : 20}" text-anchor="middle" dominant-baseline="central" font-family="${EMOJI_FONT}">${sp.acc}</text>`;
     }
 
+    if (X('stars')) for (const [x, y, r] of [[13, 20, 4], [87, 24, 5], [9, 68, 3], [91, 64, 4], [50, 5, 3.5], [24, 88, 3]]) {
+      front += `<path d="M${x},${y - r * 1.8} L${x + r * 0.4},${y - r * 0.4} L${x + r * 1.8},${y} L${x + r * 0.4},${y + r * 0.4} L${x},${y + r * 1.8} L${x - r * 0.4},${y + r * 0.4} L${x - r * 1.8},${y} L${x - r * 0.4},${y - r * 0.4} Z" fill="${glow}" stroke="#fff" stroke-width=".6"/>`;
+    }
+
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="200" height="200">${defs}${back}${body}${front}</svg>`;
   }
 
+  // Shiny variants: same design, hue-shifted colors and sparkles.
+  function hue(hex, deg) {
+    const n = parseInt(hex.slice(1), 16);
+    let r = (n >> 16) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+    let h = 0, s = 0;
+    if (d) {
+      s = d / (1 - Math.abs(2 * l - 1));
+      h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      h *= 60;
+    }
+    h = (h + deg + 360) % 360;
+    const C = (1 - Math.abs(2 * l - 1)) * s, X2 = C * (1 - Math.abs((h / 60) % 2 - 1)), m = l - C / 2;
+    [r, g, b] = h < 60 ? [C, X2, 0] : h < 120 ? [X2, C, 0] : h < 180 ? [0, C, X2] : h < 240 ? [0, X2, C] : h < 300 ? [X2, 0, C] : [C, 0, X2];
+    const to = v => Math.round((v + m) * 255);
+    return '#' + ((1 << 24) | (to(r) << 16) | (to(g) << 8) | to(b)).toString(16).slice(1);
+  }
+  function shinyOf(sp) {
+    const shift = 140 + (sp.id * 37) % 80;
+    return Object.assign({}, sp, {
+      id: sp.id + 's', color: hue(sp.color, shift), belly: hue(sp.belly, shift), glow: hue(sp.glow || '#fde047', shift),
+      extras: [...new Set([...(sp.extras || []), 'stars'])],
+    });
+  }
+
   const cache = {};
-  function entry(sp) {
-    if (!cache[sp.id]) {
-      const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg(sp));
+  function entry(sp, shiny) {
+    const key = sp.id + (shiny ? 's' : '');
+    if (!cache[key]) {
+      const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg(shiny ? shinyOf(sp) : sp));
       const img = new Image();
       img.src = url;
-      cache[sp.id] = { url, img };
+      cache[key] = { url, img };
     }
-    return cache[sp.id];
+    return cache[key];
   }
 
   return {
     svg, shade,
-    url: sp => entry(sp).url,
-    img: sp => entry(sp).img,
-    preload: list => list.forEach(entry),
+    url: (sp, shiny) => entry(sp, shiny).url,
+    img: (sp, shiny) => entry(sp, shiny).img,
+    preload: list => list.forEach(sp => entry(sp)),
   };
 })();

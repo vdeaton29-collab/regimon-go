@@ -1,21 +1,5 @@
-// Regimon GO — game data: world layout, stops, species.
+// Regimon GO — game data: types, rarities, arenas, species. (Geography lives in geo.js.)
 window.RG = (() => {
-  // The map runs west (Central Park) to east (the East River), and from 83rd St (top) to 96th St (bottom).
-  const W = 5000, H = 6600;
-  const AVES = [
-    [600, 660, '5th Ave'], [1100, 1150, 'Madison Ave'], [1600, 1680, 'Park Ave'], [2100, 2150, 'Lexington Ave'],
-    [2600, 2660, '3rd Ave'], [3100, 3160, '2nd Ave'], [3600, 3660, '1st Ave'], [4050, 4100, 'York Ave'], [4440, 4490, 'East End Ave'],
-  ];
-  const STREETS = [
-    [300, 344, 'E 83rd St'], [800, 844, 'E 84th St'], [1300, 1344, 'E 85th St'], [1650, 1700, 'E 86th St'],
-    [2150, 2194, 'E 87th St'], [2600, 2644, 'E 88th St'], [3050, 3094, 'E 89th St'], [3500, 3544, 'E 90th St'],
-    [3950, 3994, 'E 91st St'], [4400, 4444, 'E 92nd St'], [4850, 4894, 'E 93rd St'], [5300, 5344, 'E 94th St'],
-    [5750, 5794, 'E 95th St'], [6200, 6260, 'E 96th St'],
-  ];
-  const PARK_END = 3500; // Carl Schurz Park runs from 84th to 90th St
-  const STREET_END = 4490; // streets stop at East End Ave; Carl Schurz Park and the river lie beyond
-  const RIVER_X = 4800;
-
   const TYPES = {
     Brainy: '#8b5cf6', Classic: '#b45309', Fire: '#ef4444', Dark: '#475569',
     Normal: '#8b8f99', Grass: '#16a34a', Spirit: '#ca8a04', Electric: '#d4a106',
@@ -31,7 +15,10 @@ window.RG = (() => {
     3: { name: 'Uncommon', w: 7, base: 0.26, flee: 0.12 },
     4: { name: 'Rare', w: 2, base: 0.13, flee: 0.18 },
     5: { name: 'Legendary', w: 0.45, base: 0.06, flee: 0.25 },
+    6: { name: 'Mythic', w: 0.12, base: 0.04, flee: 0.3 },
+    7: { name: 'Celestial', w: 0.035, base: 0.025, flee: 0.35 },
   };
+  const SHINY_ODDS = 1 / 64;
 
   const BALLS = {
     regi: { name: 'Regi Ball', color: '#1f3a93', mult: 1 },
@@ -40,10 +27,10 @@ window.RG = (() => {
   };
 
   const ZONES = {
-    park: 'Central Park', museum: 'The Met', school: 'Regis High School',
-    church: 'St. Ignatius Loyola', subway: '86th St Station', street: 'Upper East Side',
-    water: 'The Reservoir & Turtle Pond', river: 'The East River', sports: 'Asphalt Green, the Ballfields & Tennis Center',
-    music: '92NY', any: 'Everywhere',
+    park: 'Parks', museum: 'Museums', school: 'Schools', church: 'Churches & temples', subway: 'Subway & PATH stations',
+    street: 'City streets', water: 'Park lakes & the Reservoir', river: 'The Hudson & East Rivers', sports: 'Arenas & ballfields',
+    music: 'Concert halls & theaters', midtown: 'Midtown skyscrapers', finance: 'The Financial District', harbor: 'New York Harbor',
+    nj: 'Hoboken, Jersey City & Union City', chinatown: 'Chinatown', any: 'Everywhere',
   };
 
   const ZONE_HINTS = {
@@ -54,79 +41,40 @@ window.RG = (() => {
     museum: 'Ancient Regimon lurk in the galleries 🏺',
     subway: 'Steel and Dark Regimon ride the rails 🚇',
     street: 'City Regimon roam the avenues 🚕',
-    river: 'River Regimon ride the East River currents 🌊',
+    river: 'River Regimon ride the currents 🌊',
     sports: 'Athletic Regimon train here 🏅',
     music: 'Musical Regimon perform here 🎼',
+    midtown: 'Skyscraper Regimon soar over Midtown 🏙️',
+    finance: 'Wall Street Regimon are trading here 📈',
+    harbor: 'Harbor Regimon guard the bay 🗽',
+    nj: 'Jersey Regimon live across the Hudson 🌉',
+    chinatown: 'Festival Regimon celebrate here 🏮',
   };
 
-  const STOPS = [
-    { id: 'front', name: 'Regis Front Steps', x: 1375, y: 905, icon: '🏛️', blurb: 'Founded in 1914 — and every student attends tuition-free.' },
-    { id: 'library', name: 'Regis Library', x: 1235, y: 1070, icon: '📚', blurb: 'Quiet please. The Owlgebras are studying.' },
-    { id: 'cafe', name: 'Regis Cafeteria', x: 1515, y: 1160, icon: '🍕', blurb: 'Cafeterriers love Pizza Friday.' },
-    { id: 'gym', name: 'Regis Gym', x: 1260, y: 1235, icon: '🏀', blurb: 'Home court. Go Raiders!' },
-    { id: 'chapel', name: 'St. Ignatius Loyola', x: 1890, y: 690, icon: '⛪', blurb: 'Go forth and set the world on fire.' },
-    { id: 'met', name: 'The Met Steps', x: 575, y: 420, icon: '🖼️', blurb: 'Two million works of art, and at least one Armorillo.' },
-    { id: 'dendur', name: 'Temple of Dendur', x: 490, y: 150, icon: '🏺', blurb: 'Built around 15 B.C. Dendurtle has been here the whole time.' },
-    { id: 'castle', name: 'Belvedere Castle', x: 335, y: 612, icon: '🏰', blurb: 'Overlooks Turtle Pond. Belveturtle insists it owns the place.' },
-    { id: 'lawn', name: 'Great Lawn', x: 250, y: 450, icon: '🌳', blurb: 'Perfect for a free period. Watch out for Squirrelios.' },
-    { id: 'reservoir', name: 'Reservoir Track', x: 300, y: 972, icon: '🏃', blurb: '1.58 miles around. Reservortex does it in 40 seconds.' },
-    { id: 'tulips', name: 'Park Ave Tulips', x: 1640, y: 1080, icon: '🌷', blurb: 'The median blooms every spring. So do the Parkavenewts.' },
-    { id: 'subway', name: '86th St Subway', x: 2185, y: 1615, icon: '🚇', blurb: '4, 5, 6 trains. Subwayrm is always one stop behind you.' },
-    { id: 'deli', name: 'Corner Deli', x: 2215, y: 1000, icon: '🥯', blurb: 'Bacon, egg & cheese on an everything bagel.' },
-    { id: 'madison', name: 'Madison Ave Café', x: 1075, y: 560, icon: '☕', blurb: 'Where upperclassmen pretend to like black coffee.' },
-    { id: 'loyola', name: 'Loyola School', x: 1890, y: 160, icon: '🏫', blurb: 'Regis’s Jesuit neighbor on Park Avenue.' },
-    { id: 'neue', name: 'Neue Galerie', x: 700, y: 1745, icon: '🖼️', blurb: 'Home of Klimt’s “Woman in Gold,” right on Fifth Avenue.' },
-    { id: 'gugg', name: 'The Guggenheim', x: 1075, y: 2700, icon: '🌀', blurb: 'Frank Lloyd Wright’s spiral. Spiralynx has been walking the ramp for years.' },
-    { id: 'engineers', name: 'Engineers’ Gate', x: 575, y: 3525, icon: '🏃', blurb: 'Where Reservoir runners start their loop at 90th and Fifth.' },
-    { id: 'ballfields', name: 'Central Park Ballfields', x: 300, y: 2700, icon: '⚾', blurb: 'Pickup games every afternoon. Sprintah never gets tagged out.' },
-    { id: 'shops86', name: '86th Street Shops', x: 2380, y: 1722, icon: '🛍️', blurb: 'The busiest shopping strip on the Upper East Side.' },
-    { id: 'qtrain', name: '86th St Q Train', x: 3185, y: 1728, icon: '🚇', blurb: 'The Second Avenue Subway opened here in 2017.' },
-    { id: 'bakery', name: 'Yorkville Bakery', x: 3400, y: 2215, icon: '🥨', blurb: 'Yorkville was once the heart of German New York. Pretzels still rule.' },
-    { id: 'diner', name: 'First Avenue Diner', x: 3690, y: 1000, icon: '🍳', blurb: 'Pancakes after a Saturday tournament. Tradition.' },
-    { id: 'dogrun', name: 'Carl Schurz Dog Run', x: 4600, y: 1150, icon: '🐕', blurb: 'Every dog on the East Side meets here at 8 a.m.' },
-    { id: 'promenade', name: 'Carl Schurz Promenade', x: 4765, y: 1700, icon: '🌊', blurb: 'Watch the tugboats push up the East River.' },
-    { id: 'hellgate', name: 'Hell Gate Overlook', x: 4765, y: 3150, icon: '⚓', blurb: 'The churning tidal strait where the Gatekeel lives.' },
-    { id: 'heavenly', name: 'Church of the Heavenly Rest', x: 880, y: 3130, icon: '⛪', blurb: 'Seraphalcon nests in its bell tower.' },
-    { id: 'cooper', name: 'Cooper Hewitt', x: 880, y: 3580, icon: '⚙️', blurb: 'The national design museum in Andrew Carnegie’s mansion. Gearadon was built here.' },
-    { id: 'jewish', name: 'The Jewish Museum', x: 880, y: 4030, icon: '🏛️', blurb: 'A French Gothic mansion on Museum Mile at 92nd Street.' },
-    { id: 'ny92', name: '92NY', x: 2375, y: 4030, icon: '🎼', blurb: 'Concerts, readings and one very loud Crescendragon.' },
-    { id: 'ruppert', name: 'Ruppert Park', x: 3380, y: 3740, icon: '🌳', blurb: 'A quiet garden where a brewery once stood.' },
-    { id: 'tennis', name: 'Central Park Tennis Center', x: 300, y: 5020, icon: '🎾', blurb: 'Thirty clay courts. Glaciator freezes one for hockey every winter.' },
-    { id: 'bridle', name: 'Bridle Path', x: 520, y: 4450, icon: '🐎', blurb: 'The horse trail around the Reservoir. Umbrawolf prowls it after dark.' },
-    { id: 'carnegie', name: 'Carnegie Hill Café', x: 1320, y: 4460, icon: '☕', blurb: 'The quietest corner of the Upper East Side.' },
-    { id: 'lex96', name: '96th St 6 Train', x: 2185, y: 6180, icon: '🚇', blurb: 'Last local stop before the train heads uptown.' },
-    { id: 'q96', name: '96th St Q Train', x: 3185, y: 6180, icon: '🚇', blurb: 'The northern end of the Second Avenue Subway. Magmalith sleeps below.' },
-    { id: 'icc', name: 'Islamic Cultural Center', x: 2880, y: 5830, icon: '🕌', blurb: 'Its great dome sits at 96th and Third.' },
-    { id: 'marx', name: 'Marx Brothers Playground', x: 3380, y: 5830, icon: '🏀', blurb: 'Pickup basketball until the streetlights come on.' },
-    { id: 'millrock', name: 'Mill Rock Overlook', x: 4770, y: 5980, icon: '🏝️', blurb: 'A tiny island in the East River. Strange lights appear above it at night.' },
-  ];
-
-  // Battle arenas. Each leader's team is species ids; their level scales with your team.
+  // Battle arenas at real locations. Each leader's team is species ids; their level scales with your team.
+  const A = (id, name, lat, lon, tier, leader, title, team, color, quote) => ({ id, name, lat, lon, tier, leader, title, team, color, quote });
   const ARENAS = [
-    { id: 'lawn', name: 'Great Lawn Arena', x: 120, y: 330, tier: 1, leader: 'Ranger Rosa', title: 'Park Ranger', team: [9, 34, 35], color: '#16a34a',
-      quote: 'The Great Lawn is my turf. Literally.' },
-    { id: 'regisgym', name: 'Regis Gym Arena', x: 1405, y: 1250, tier: 2, leader: 'Coach Malone', title: 'Varsity Coach', team: [47, 48, 49], color: '#1f3a93',
-      quote: 'Hustle! Show me what you’ve got, first-year.' },
-    { id: 'qarena', name: 'Second Ave Station Arena', x: 3310, y: 1770, tier: 3, leader: 'Conductor Kay', title: 'Train Conductor', team: [40, 17, 39], color: '#64748b',
-      quote: 'Stand clear of the closing doors, please!' },
-    { id: 'guggarena', name: 'Guggenheim Arena', x: 880, y: 2920, tier: 4, leader: 'Curator Vance', title: 'Museum Curator', team: [43, 58, 59], color: '#a16207',
-      quote: 'Every battle is a work of art. Shall we?' },
-    { id: 'asphalt', name: 'Asphalt Green Arena', x: 4270, y: 2900, tier: 5, leader: 'Captain Ruiz', title: 'Swim Team Captain', team: [50, 51, 52], color: '#ea580c',
-      quote: 'Last one to the wall buys the bagels.' },
-    { id: 'gracie', name: 'Gracie Mansion Arena', x: 4640, y: 2880, tier: 6, leader: 'The Mayor', title: 'Mayor of New York', team: [32, 22, 57], color: '#d4a017',
-      quote: 'This city has seen a lot of trainers. Let’s see if you’re any different.' },
-    { id: 'ny92arena', name: '92NY Concert Arena', x: 2250, y: 4200, tier: 7, leader: 'Maestro Lin', title: 'Concert Conductor', team: [30, 42, 80], color: '#7c3aed',
-      quote: 'Every battle has a rhythm. Try to keep up.' },
-    { id: 'cooperarena', name: 'Cooper Hewitt Arena', x: 970, y: 3760, tier: 8, leader: 'Designer Okafor', title: 'Industrial Designer', team: [71, 76, 65], color: '#475569',
-      quote: 'I designed my team to beat yours. Let’s test the prototype.' },
-    { id: 'millrockarena', name: 'Mill Rock Arena', x: 4900, y: 6060, tier: 9, leader: 'The River Keeper', title: 'Champion of the East River', team: [66, 78, 69], color: '#0e7490',
-      quote: 'Few trainers ever reach this island. Fewer leave as champions.' },
+    A('lawn', 'Great Lawn Arena', 40.7826, -73.9682, 1, 'Ranger Rosa', 'Park Ranger', [9, 34, 35], '#16a34a', 'The Great Lawn is my turf. Literally.'),
+    A('regisgym', 'Regis Gym Arena', 40.7797, -73.9588, 2, 'Coach Malone', 'Varsity Coach', [47, 48, 49], '#1f3a93', 'Hustle! Show me what you’ve got, first-year.'),
+    A('qarena', 'Second Ave Station Arena', 40.7782, -73.9508, 3, 'Conductor Kay', 'Train Conductor', [40, 17, 39], '#64748b', 'Stand clear of the closing doors, please!'),
+    A('guggarena', 'Guggenheim Arena', 40.7825, -73.9598, 4, 'Curator Vance', 'Museum Curator', [43, 58, 59], '#a16207', 'Every battle is a work of art. Shall we?'),
+    A('asphalt', 'Asphalt Green Arena', 40.7779, -73.9452, 5, 'Captain Ruiz', 'Swim Team Captain', [50, 51, 52], '#ea580c', 'Last one to the wall buys the bagels.'),
+    A('gracie', 'Gracie Mansion Arena', 40.7764, -73.9440, 6, 'The Mayor', 'Mayor of New York', [32, 22, 57], '#d4a017', 'This city has seen a lot of trainers. Let’s see if you’re any different.'),
+    A('ny92arena', '92NY Concert Arena', 40.7836, -73.9522, 7, 'Maestro Lin', 'Concert Conductor', [30, 42, 80], '#7c3aed', 'Every battle has a rhythm. Try to keep up.'),
+    A('cooperarena', 'Cooper Hewitt Arena', 40.7849, -73.9584, 8, 'Designer Okafor', 'Industrial Designer', [71, 76, 65], '#475569', 'I designed my team to beat yours. Let’s test the prototype.'),
+    A('millrockarena', 'Mill Rock Arena', 40.7806, -73.9376, 9, 'The River Keeper', 'Champion of the East River', [66, 78, 69], '#0e7490', 'Few trainers ever reach this island. Fewer leave as champions.'),
+    A('unioncity', 'Union City Arena', 40.7666, -74.0303, 10, 'DJ Reyes', 'Bergenline Legend', [93, 92, 81], '#dc2626', 'Union City battles to a salsa beat. Keep up or step aside.'),
+    A('hoboken', 'Hoboken Pier Arena', 40.7366, -74.0258, 11, 'Baker Vito', 'Master Baker of Washington Street', [91, 90, 89], '#b45309', 'You want my cannoli? You have to beat me first.'),
+    A('jerseycity', 'Exchange Place Arena', 40.7160, -74.0322, 12, 'Commissioner Hale', 'Harbor Commissioner', [94, 95, 92], '#0f766e', 'From here I can see every trainer in Manhattan. You’re next.'),
+    A('timessq', 'Times Square Arena', 40.7584, -73.9851, 13, 'Showrunner Blaze', 'Broadway Producer', [81, 100, 83], '#db2777', 'Welcome to the biggest stage in the world. Don’t freeze under the lights.'),
+    A('wallst', 'Wall Street Arena', 40.7068, -74.0105, 14, 'The Broker', 'Wall Street Titan', [84, 85, 101], '#15803d', 'Everything has a price. Today, it’s your badge.'),
+    A('liberty', 'Liberty Island Arena', 40.6897, -74.0452, 15, 'The Harbor Guardian', 'Champion of New York', [102, 103, 87], '#5fb3a1', 'Every trainer who reaches this island has earned my respect. Now earn the title.'),
   ];
 
   const TRAINER_NAMES = [
     'Freshman Theo', 'Sophomore Aiden', 'Junior Mateo', 'Senior Liam', 'Freshman Declan', 'Sophomore Jonah',
-    'Junior Kofi', 'Senior Brendan', 'Xavier Rival', 'Fordham Prep Rival', 'Debate Captain', 'Chess Club Champ',
-    'Robotics Kid', 'Band Kid', 'Track Star', 'Yearbook Editor',
+    'Junior Kofi', 'Senior Brendan', 'Xavier Rival', 'Stuyvesant Rival', 'Debate Captain', 'Chess Club Champ',
+    'Robotics Kid', 'Band Kid', 'Track Star', 'Yearbook Editor', 'Hoboken Commuter', 'Jersey City Skater',
   ];
 
   // body: round | tall | wide | worm | ghost
@@ -336,7 +284,89 @@ window.RG = (() => {
     { id: 80, name: 'Crescendragon', types: ['Dragon', 'Electric'], rarity: 4, habitat: ['music'], body: 'tall', color: '#7c3aed', belly: '#ddd6fe', eyes: 'fierce', glow: '#f0abfc',
       extras: ['horns', 'bladewings', 'tail', 'aura'], acc: '🎼', accPos: 'hand', sig: ['Fortissimo', 'Dragon', 105, 55, 'stun'],
       desc: 'Headlines at 92NY. Its final note has shattered three chandeliers.' },
+
+    // ---- Manhattan & Jersey elites, plus the new Mythic and Celestial tiers ----
+    { id: 81, name: 'Neonoir', types: ['Electric', 'Dark'], rarity: 4, habitat: ['midtown', 'music'], body: 'tall', color: '#1a1033', belly: '#3b0764', ears: 'cat', eyes: 'fierce', glow: '#ff4fd8',
+      extras: ['neon', 'aura', 'tail', 'bolts'], acc: '', sig: ['Times Square Blackout', 'Electric', 110, 60, 'stun'],
+      desc: 'Stalks Times Square at midnight. Every billboard flickers to its colors when it passes.' },
+    { id: 82, name: 'Skyscraptor', types: ['Steel', 'Flying'], rarity: 4, habitat: ['midtown'], body: 'tall', color: '#475569', belly: '#94a3b8', eyes: 'fierce', glow: '#38bdf8',
+      extras: ['bladewings', 'armor', 'crest', 'beak', 'gradient'], acc: '', sig: ['Girder Dive', 'Steel', 100, 55, 'defDown'],
+      desc: 'A raptor forged from the beams of a skyscraper under construction. Its screech echoes off the glass towers.' },
+    { id: 83, name: 'Empyreon', types: ['Royal', 'Flying'], rarity: 6, habitat: ['midtown'], body: 'tall', color: '#fbbf24', belly: '#fff7ed', eyes: 'fierce', glow: '#fde68a',
+      extras: ['aura', 'rays', 'halo', 'bladewings', 'gradient', 'stars'], acc: '', sig: ['Spire of Light', 'Royal', 140, 70, 'atkUp'],
+      desc: 'MYTHIC. The spirit of the Empire State Building. It lights the spire in new colors every night.' },
+    { id: 84, name: 'Bullion', types: ['Steel', 'Royal'], rarity: 4, habitat: ['finance'], body: 'wide', color: '#b7791f', belly: '#fde68a', eyes: 'fierce', glow: '#facc15',
+      extras: ['horns', 'armor', 'gradient', 'aura'], acc: '', sig: ['Charging Rally', 'Steel', 110, 60, 'atkUp'],
+      desc: 'Charges down Broadway whenever the market opens. Its bronze hide is polished by a million tourists.' },
+    { id: 85, name: 'Bearish', types: ['Dark', 'Ice'], rarity: 4, habitat: ['finance'], body: 'round', color: '#1e293b', belly: '#64748b', ears: 'round', eyes: 'fierce', glow: '#7dd3fc',
+      extras: ['crystals', 'fangs', 'aura'], acc: '', sig: ['Market Freeze', 'Ice', 105, 60, 'defDown'],
+      desc: 'When it hibernates, every stock on Wall Street drops. Its breath frosts the trading floor.' },
+    { id: 86, name: 'Tickertaper', types: ['Electric', 'Brainy'], rarity: 3, habitat: ['finance', 'subway'], body: 'worm', color: '#10b981', belly: '#d1fae5', eyes: 'fierce', glow: '#34d399',
+      extras: ['bolts', 'antenna'], acc: '', sig: ['Flash Crash', 'Electric', 85, 45, 'stun'],
+      desc: 'A serpent made of scrolling stock quotes. It moves faster than any trader can blink.' },
+    { id: 87, name: 'Libertitan', types: ['Royal', 'Water'], rarity: 7, habitat: ['harbor'], body: 'tall', color: '#5fb3a1', belly: '#cfeee7', eyes: 'fierce', glow: '#fef08a',
+      extras: ['aura', 'rays', 'gradient', 'stars', 'armor'], acc: '🔥', accPos: 'hand', sig: ['Torch of Freedom', 'Royal', 160, 85, 'burn'],
+      desc: 'CELESTIAL. The guardian of New York Harbor. Its torch has welcomed travelers for more than a century.' },
+    { id: 88, name: 'Ellisprite', types: ['Spirit', 'Water'], rarity: 4, habitat: ['harbor'], body: 'ghost', color: '#c7d2fe', belly: '#eef2ff', eyes: 'fierce', glow: '#a5b4fc',
+      extras: ['aura', 'halo'], acc: '🧳', accPos: 'hand', sig: ['Golden Door', 'Spirit', 100, 55, 'drain'],
+      desc: 'Drifts through the Great Hall of Ellis Island, remembering every name that ever passed through.' },
+    { id: 89, name: 'Hudsonyx', types: ['Water', 'Dragon'], rarity: 5, habitat: ['river'], body: 'worm', color: '#0c4a6e', belly: '#38bdf8', eyes: 'fierce', glow: '#67e8f9',
+      extras: ['aura', 'horns', 'fin', 'gradient'], acc: '', sig: ['Hudson Surge', 'Water', 135, 70, 'stun'],
+      desc: 'LEGENDARY. The serpent of the Hudson. Ferry captains between Hoboken and Manhattan swear they have seen its horns.' },
+    { id: 90, name: 'Pathfinder', types: ['Electric', 'Steel'], rarity: 3, habitat: ['subway', 'nj'], body: 'wide', color: '#1d4ed8', belly: '#bfdbfe', eyes: 'fierce', glow: '#fde047',
+      extras: ['bolts', 'armor', 'antenna'], acc: '', sig: ['Tunnel Express', 'Electric', 95, 50, 'atkUp'],
+      desc: 'Races through the PATH tunnels under the Hudson. It has never missed a connection at Exchange Place.' },
+    { id: 91, name: 'Cannolisk', types: ['Normal', 'Fire'], rarity: 3, habitat: ['nj'], body: 'tall', color: '#e9c98f', belly: '#fff8e7', eyes: 'fierce', glow: '#f97316',
+      extras: ['crest', 'tail', 'fangs'], acc: '🍰', accPos: 'hand', sig: ['Ricotta Rampage', 'Normal', 100, 55, 'drain'],
+      desc: 'Guards the bakeries on Washington Street in Hoboken. One look and your cannoli is gone.' },
+    { id: 92, name: 'Palisaur', types: ['Ancient', 'Grass'], rarity: 4, habitat: ['nj', 'park'], body: 'wide', color: '#6b5b3e', belly: '#a3b18a', eyes: 'fierce', glow: '#84cc16',
+      extras: ['crest', 'spikes', 'gradient', 'tail'], acc: '', sig: ['Palisade Crash', 'Ancient', 115, 65, 'defDown'],
+      desc: 'Has slept inside the Palisades cliffs for 200 million years. When it stretches, Weehawken rumbles.' },
+    { id: 93, name: 'Salsamander', types: ['Fire', 'Athletic'], rarity: 3, habitat: ['nj', 'music'], body: 'tall', color: '#dc2626', belly: '#fecaca', eyes: 'fierce', glow: '#fb923c',
+      extras: ['flamecrest', 'tail'], acc: '🎺', accPos: 'hand', sig: ['Bergenline Blaze', 'Fire', 95, 50, 'atkUp'],
+      desc: 'Dances down Bergenline Avenue in Union City. Its tail keeps time to the salsa beat.' },
+    { id: 94, name: 'Hamiltron', types: ['Steel', 'Classic'], rarity: 4, habitat: ['nj'], body: 'tall', color: '#334155', belly: '#e2e8f0', eyes: 'fierce', glow: '#f59e0b',
+      extras: ['armor', 'crest'], acc: '📜', accPos: 'hand', sig: ['Ten Paces', 'Steel', 120, 65, 'stun'],
+      desc: 'A clockwork duelist from the cliffs of Weehawken. It never throws away its shot.' },
+    { id: 95, name: 'Bridgoyle', types: ['Steel', 'Ghost'], rarity: 4, habitat: ['river', 'finance'], body: 'round', color: '#57534e', belly: '#a8a29e', ears: 'tufts', eyes: 'fierce', glow: '#a78bfa',
+      extras: ['bladewings', 'horns', 'fangs'], acc: '', sig: ['Suspension Strike', 'Ghost', 110, 60, 'defDown'],
+      desc: 'A stone gargoyle that perches on the towers of the Brooklyn Bridge, watching the traffic below.' },
+    { id: 96, name: 'Lanternwyrm', types: ['Dragon', 'Fire'], rarity: 5, habitat: ['chinatown'], body: 'tall', color: '#b91c1c', belly: '#fde68a', eyes: 'fierce', glow: '#fbbf24',
+      extras: ['aura', 'horns', 'gills', 'tail', 'gradient'], acc: '🏮', accPos: 'hand', sig: ['Lantern Festival', 'Fire', 135, 70, 'burn'],
+      desc: 'LEGENDARY. Dances through Chinatown on New Year’s night, trailing a thousand glowing lanterns.' },
+    { id: 97, name: 'Highlinx', types: ['Grass', 'Steel'], rarity: 3, habitat: ['park', 'midtown'], body: 'round', color: '#4d7c0f', belly: '#d9f99d', ears: 'cat', eyes: 'fierce', glow: '#a3e635',
+      extras: ['tail', 'armor'], acc: '', sig: ['Rail Garden', 'Grass', 95, 50, 'drain'],
+      desc: 'Prowls the old railway of the High Line. Wildflowers bloom in its footprints.' },
+    { id: 98, name: 'Vesselith', types: ['Ancient', 'Steel'], rarity: 4, habitat: ['midtown'], body: 'round', color: '#b45309', belly: '#fdba74', eyes: 'fierce', glow: '#fb923c',
+      extras: ['crystals', 'armor', 'gradient'], acc: '', sig: ['Honeycomb Collapse', 'Ancient', 115, 65, 'defDown'],
+      desc: 'Its body is 154 interlocking staircases. Nobody has ever climbed all the way to the top.' },
+    { id: 99, name: 'Oculuxe', types: ['Spirit', 'Brainy'], rarity: 4, habitat: ['finance'], body: 'tall', color: '#f8fafc', belly: '#ffffff', eyes: 'fierce', glow: '#93c5fd',
+      extras: ['bladewings', 'halo', 'aura'], acc: '', sig: ['Oculus Beam', 'Spirit', 110, 60, 'defDown'],
+      desc: 'Its white ribbed wings open only when sunlight falls straight through the Oculus.' },
+    { id: 100, name: 'Chronowl', types: ['Brainy', 'Ghost'], rarity: 5, habitat: ['midtown'], body: 'round', color: '#78350f', belly: '#fde68a', ears: 'tufts', eyes: 'fierce', glow: '#fcd34d',
+      extras: ['aura', 'bladewings', 'beak', 'halo'], acc: '🕰️', accPos: 'hand', sig: ['Grand Central Time', 'Brainy', 130, 70, 'stun'],
+      desc: 'LEGENDARY. Perches on the golden clock in Grand Central Terminal and never lets a train run late.' },
+    { id: 101, name: 'Metropolaris', types: ['Royal', 'Dragon'], rarity: 7, habitat: ['finance', 'midtown'], body: 'tall', color: '#0f172a', belly: '#fbbf24', eyes: 'fierce', glow: '#fde047',
+      extras: ['aura', 'rays', 'stars', 'bladewings', 'horns', 'gradient', 'armor'], acc: '', sig: ['City That Never Sleeps', 'Dragon', 165, 85, 'atkUp'],
+      desc: 'CELESTIAL. The dragon of the whole skyline. Every light in Manhattan is a scale on its back.' },
+    { id: 102, name: 'Voidrail', types: ['Dark', 'Electric'], rarity: 6, habitat: ['subway'], body: 'worm', color: '#0b0a1f', belly: '#4c1d95', eyes: 'fierce', glow: '#a855f7',
+      extras: ['aura', 'neon', 'bolts', 'horns'], acc: '', sig: ['Last Train', 'Dark', 140, 75, 'stun'],
+      desc: 'MYTHIC. A phantom train that runs after the last train of the night. Nobody knows where it stops.' },
+    { id: 103, name: 'Solhenge', types: ['Fire', 'Spirit'], rarity: 6, habitat: ['street', 'park'], body: 'round', color: '#f97316', belly: '#fef3c7', eyes: 'fierce', glow: '#fde047',
+      extras: ['aura', 'rays', 'mane', 'gradient', 'stars'], acc: '', sig: ['Manhattanhenge', 'Fire', 140, 75, 'burn'],
+      desc: 'MYTHIC. Appears twice a year, when the sunset lines up perfectly with the crosstown streets.' },
   ];
 
-  return { W, H, AVES, STREETS, STREET_END, RIVER_X, PARK_END, TYPES, RARITY, BALLS, ZONES, ZONE_HINTS, STOPS, ARENAS, TRAINER_NAMES, SPECIES };
+  // City Regimon also live in the new districts.
+  const MORE_HABITATS = {
+    2: ['midtown', 'finance', 'nj', 'chinatown', 'harbor'], 7: ['nj', 'finance'], 36: ['midtown'], 37: ['midtown', 'nj'], 38: ['midtown'],
+    53: ['harbor'], 55: ['harbor', 'nj'], 56: ['harbor', 'nj'], 60: ['midtown', 'nj'], 62: ['nj', 'chinatown', 'midtown'], 67: ['midtown'],
+    69: ['midtown'], 8: ['nj'], 6: ['chinatown', 'nj'], 17: ['nj'], 54: ['harbor'],
+  };
+  for (const [id, extra] of Object.entries(MORE_HABITATS)) {
+    const sp = SPECIES.find(s => s.id === +id);
+    if (sp) sp.habitat = [...new Set([...sp.habitat, ...extra])];
+  }
+
+  return { TYPES, RARITY, SHINY_ODDS, BALLS, ZONES, ZONE_HINTS, ARENAS, TRAINER_NAMES, SPECIES };
 })();
