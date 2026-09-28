@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#14204a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="description" content="Regimon GO — a Regis High School themed catch-'em-all game on the Upper East Side.">
+  <title>Regimon GO</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👑</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="map"></canvas>
+
+  <div id="hud">
+    <div id="player-card" class="pill">
+      <div id="avatar-badge">🎓</div>
+      <div>
+        <div id="lvl">Lv 1</div>
+        <div class="xpbar"><div id="xpfill"></div></div>
+      </div>
+    </div>
+    <div id="ball-chip" class="pill light"></div>
+  </div>
+  <div id="zone-chip" class="pill light">📍 Upper East Side</div>
+
+  <div id="nearby"><div class="nearby-title">Nearby</div><div id="nearby-list"></div></div>
+
+  <nav id="dock">
+    <button id="btn-dex" aria-label="Regidex"><span class="ico">📖</span><span class="lbl">Regidex</span></button>
+    <button id="btn-bag" class="main" aria-label="Bag"><span class="ico">👑</span></button>
+    <button id="btn-box" aria-label="My Regimon"><span class="ico">🗃️</span><span class="lbl">Caught</span></button>
+  </nav>
+
+  <div id="toast"></div>
+  <div id="banner"></div>
+
+  <section id="catch" class="hidden">
+    <canvas id="catch-canvas"></canvas>
+    <div id="catch-top">
+      <div id="catch-cp"></div>
+      <div id="catch-name"></div>
+      <div id="catch-types"></div>
+    </div>
+    <div id="catch-msg"></div>
+    <div id="catch-hint">Swipe the ball up to throw!</div>
+    <div id="catch-bottom">
+      <button id="btn-run" aria-label="Run away">🏃</button>
+      <span class="spacer"></span>
+      <button id="btn-ball" aria-label="Switch ball"></button>
+      <button id="btn-bagel" aria-label="Give a bagel">🥯<b id="bagel-count"></b></button>
+    </div>
+  </section>
+
+  <section id="modal" class="hidden">
+    <div class="sheet">
+      <button class="close" aria-label="Close">✕</button>
+      <div id="modal-body"></div>
+    </div>
+  </section>
+
+  <script src="js/data.js"></script>
+  <script src="js/art.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
