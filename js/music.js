@@ -50,6 +50,17 @@ window.RGMusic = (() => {
       bassPat: [0, 0, 12, 0, 0, 12, 0, 12],
       kick: [0, 3, 4], snare: [2, 6], hat: [0, 1, 2, 3, 4, 5, 6, 7],
     }),
+    // Trainer battle — heroic D minor with a big finish on each loop.
+    fight: compile({
+      bpm: 168, lead: 'square', leadVol: 0.08,
+      melody: `D5 . F5 . A5 . D6 .   C6 . A5 . F5 . G5 A5   Bb5 . . A5 G5 . F5 .   E5 . G5 . A5 . . .
+               D5 . F5 . A5 . D6 .   E6 . D6 . C6 . A5 .    Bb5 . A5 . G5 . E5 .   D5 . . . A4 . D5 .
+               F5 . E5 . D5 . C5 .   D5 . . . A4 . . .      Bb4 . C5 . D5 . F5 .   E5 . . . A5 . . .
+               D6 . C6 . Bb5 . A5 .  G5 . F5 . E5 . D5 .    E5 . F5 . G5 . E5 .    D5 . . . _ _ _ _`,
+      bass: ['D2', 'F2', 'G2', 'A2', 'D2', 'C3', 'G2', 'D2', 'D2', 'A2', 'G2', 'A2', 'Bb2', 'C3', 'A2', 'D2'],
+      bassPat: [0, 12, 0, 12, 0, 12, 7, 12],
+      kick: [0, 2, 4, 6], snare: [2, 6], hat: [1, 3, 5, 7],
+    }),
   };
 
   function ensure() {
@@ -153,6 +164,20 @@ window.RGMusic = (() => {
     fled: t => { duck(1); ['E5', 'C5', 'A4'].forEach((n, i) => tone(mtof(midi(n)), t + i * 0.13, 0.14, 'square', 0.08, sfxBus)); },
     spin: t => ['G5', 'B5', 'D6', 'G6'].forEach((n, i) => tone(mtof(midi(n)), t + i * 0.06, 0.09, 'square', 0.07, sfxBus)),
     encounter: t => ['A4', 'C5', 'E5', 'A5'].forEach((n, i) => tone(mtof(midi(n)), t + i * 0.05, 0.08, 'square', 0.07, sfxBus)),
+    hit: t => { noise(t, 0.16, 0.3, sfxBus, 'lowpass', 1800, 200); tone(180, t, 0.14, 'square', 0.08, sfxBus, 60); },
+    superhit: t => { noise(t, 0.3, 0.4, sfxBus, 'lowpass', 3500, 150); tone(300, t, 0.25, 'sawtooth', 0.08, sfxBus, 50); },
+    weakhit: t => noise(t, 0.08, 0.15, sfxBus, 'lowpass', 900),
+    buff: t => ['C5', 'G5', 'C6'].forEach((n, i) => tone(mtof(midi(n)), t + i * 0.07, 0.1, 'triangle', 0.12, sfxBus)),
+    debuff: t => ['C6', 'G5', 'C5'].forEach((n, i) => tone(mtof(midi(n)), t + i * 0.07, 0.1, 'triangle', 0.12, sfxBus)),
+    heal: t => ['E5', 'G5', 'B5', 'E6'].forEach((n, i) => tone(mtof(midi(n)), t + i * 0.08, 0.16, 'sine', 0.15, sfxBus)),
+    faint: t => tone(600, t, 0.6, 'square', 0.08, sfxBus, 80),
+    miss: t => noise(t, 0.2, 0.12, sfxBus, 'highpass', 3000, 8000),
+    victory: t => {
+      duck(2.4);
+      [['G4', 0], ['C5', 0.15], ['E5', 0.3], ['G5', 0.45], ['E5', 0.75], ['G5', 0.9]].forEach(([n, d]) => tone(mtof(midi(n)), t + d, 0.14, 'square', 0.1, sfxBus));
+      ['C5', 'E5', 'G5', 'C6'].forEach(n => tone(mtof(midi(n)), t + 1.1, 1.0, 'square', 0.05, sfxBus));
+    },
+    defeat: t => { duck(2); ['E5', 'D5', 'C5', 'A4'].forEach((n, i) => tone(mtof(midi(n)), t + i * 0.25, 0.3, 'triangle', 0.14, sfxBus)); },
     levelup: t => {
       duck(1.8);
       ['C5', 'C5', 'C5', 'G5', 'E5', 'C6'].forEach((n, i) => tone(mtof(midi(n)), t + [0, 0.12, 0.24, 0.36, 0.6, 0.72][i], i === 5 ? 0.8 : 0.1, 'square', 0.1, sfxBus));

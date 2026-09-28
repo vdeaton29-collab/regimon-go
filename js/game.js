@@ -1,13 +1,13 @@
 // Regimon GO — map, spawns, stops, catching, Regidex.
 (() => {
   'use strict';
-  const { W, H, TYPES, RARITY, BALLS, ZONES, ZONE_HINTS, STOPS, SPECIES } = window.RG;
-  const Art = window.RGArt, Music = window.RGMusic;
+  const { W, H, AVES, STREETS, STREET_END, RIVER_X, TYPES, RARITY, BALLS, ZONES, ZONE_HINTS, STOPS, ARENAS, TRAINER_NAMES, SPECIES } = window.RG;
+  const Art = window.RGArt, Music = window.RGMusic, Battle = window.RGBattle;
   const $ = s => document.querySelector(s);
   const rnd = (a, b) => a + Math.random() * (b - a);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const hyp = (x1, y1, x2, y2) => Math.hypot(x1 - x2, y1 - y2);
-  const RANGE = 190, SPEED = 190, METERS_PER_PX = 0.4, STOP_COOLDOWN = 120000;
+  const RANGE = 190, SPEED = 220, METERS_PER_PX = 0.4, STOP_COOLDOWN = 120000;
   const BALL_ORDER = ['regi', 'honors', 'magna'];
   const byId = Object.fromEntries(SPECIES.map(s => [s.id, s]));
   Art.preload(SPECIES);
@@ -17,7 +17,7 @@
   function freshState() {
     return {
       xp: 0, level: 1, items: { regi: 30, honors: 5, magna: 1, bagel: 5 },
-      dex: {}, caught: [], cooldowns: {}, px: 1375, py: 822, intro: false, nextUid: 1,
+      dex: {}, caught: [], cooldowns: {}, badges: {}, px: 1375, py: 822, intro: false, nextUid: 1,
     };
   }
   function load() {
@@ -39,15 +39,33 @@
   const xpNeed = lvl => 600 + lvl * 400;
 
   // ---------------- world ----------------
+  const inEll = (x, y, cx, cy, rx, ry) => ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 < 1;
+  const inRect = (x, y, r) => x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3];
+  const REGIS = [1150, 844, 1600, 1300], CHURCH = [1680, 344, 2100, 800];
+  const GUGG = [660, 2644, 1100, 3050], ASPHALT = [4100, 2644, 4440, 3300];
+  const SUBWAYS = [[2185, 1640], [3185, 1700]];
+
   function zoneAt(x, y) {
-    if (x >= 380 && x <= 600 && y >= 60 && y <= 740) return 'museum';
-    if (((x - 300) / 238) ** 2 + ((y - 1250) / 290) ** 2 < 1) return 'water';
-    if (((x - 190) / 120) ** 2 + ((y - 668) / 48) ** 2 < 1) return 'water';
-    if (x < 600) return 'park';
-    if (x >= 1150 && x <= 1600 && y >= 844 && y <= 1300) return 'school';
-    if (x >= 1680 && x <= 2100 && y >= 344 && y <= 800) return 'church';
-    if (hyp(x, y, 2185, 1640) < 230) return 'subway';
+    if (x >= RIVER_X) return 'river';
+    if ((x >= 380 && x <= 600 && y >= 60 && y <= 740) || inRect(x, y, GUGG)) return 'museum';
+    if (inEll(x, y, 300, 1250, 238, 290) || inEll(x, y, 190, 668, 120, 48)) return 'water';
+    if (inRect(x, y, ASPHALT) || inEll(x, y, 300, 2700, 200, 170)) return 'sports';
+    if (x < 600 || (x >= STREET_END && y >= 844)) return 'park';
+    if (inRect(x, y, REGIS)) return 'school';
+    if (inRect(x, y, CHURCH)) return 'church';
+    if (SUBWAYS.some(([sx, sy]) => hyp(x, y, sx, sy) < 220)) return 'subway';
     return 'street';
+  }
+  function zoneLabel(z, x, y) {
+    switch (z) {
+      case 'water': return y < 900 ? 'Turtle Pond' : 'The Reservoir';
+      case 'museum': return y > 2500 ? 'The Guggenheim' : 'The Met';
+      case 'park': return x > 4000 ? 'Carl Schurz Park' : 'Central Park';
+      case 'sports': return x > 4000 ? 'Asphalt Green' : 'Central Park Ballfields';
+      case 'subway': return x > 2600 ? '86th St · Q train' : '86th St · 4 5 6';
+      case 'street': return x > 2630 ? 'Yorkville' : 'Upper East Side';
+      default: return ZONES[z];
+    }
   }
 
   function mulberry32(a) {
@@ -64,13 +82,16 @@
     g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
   }
 
-  const VR = [[600, 660, '5th Ave'], [1100, 1150, 'Madison Ave'], [1600, 1680, 'Park Ave'], [2100, 2150, 'Lexington Ave']];
-  const HR = [[300, 344, 'E 83rd St'], [800, 844, 'E 84th St'], [1300, 1344, 'E 85th St'], [1650, 1700, 'E 86th St']];
+  // Rows of blocks between cross streets, and columns between avenues.
+  const YS = [[0, STREETS[0][0]]];
+  for (let i = 0; i < STREETS.length; i++) YS.push([STREETS[i][1], i + 1 < STREETS.length ? STREETS[i + 1][0] : H]);
+  const XS = [];
+  for (let i = 0; i + 1 < AVES.length; i++) XS.push([AVES[i][1], AVES[i + 1][0]]);
+  const streetEnd = y0 => (y0 < 844 ? RIVER_X : STREET_END);
 
-  function buildWorld() {
-    const cv = document.createElement('canvas');
-    cv.width = W; cv.height = H;
-    const g = cv.getContext('2d');
+  // Draws the entire static map. Called once per tile (with a translate) and once for the overview map,
+  // so it must be deterministic: same seed, same drawing order every time.
+  function drawWorld(g) {
     const R = mulberry32(1914);
     const ell = (x, y, rx, ry, fill) => { g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); g.fillStyle = fill; g.fill(); };
     const label = (txt, x, y, size, color, bg) => {
@@ -83,13 +104,13 @@
       ell(x, y, r, r, R() < 0.5 ? '#3f8f3a' : '#4d9e44');
       ell(x - r * 0.3, y - r * 0.3, r * 0.45, r * 0.45, 'rgba(255,255,255,.12)');
     };
+    const awning = (x, y, n, a, b) => { for (let i = 0; i < n; i++) { g.fillStyle = i % 2 ? a : b; g.fillRect(x + i * 11, y, 11, 14); } };
 
-    // city base
     g.fillStyle = '#cfc8b8'; g.fillRect(0, 0, W, H);
 
     // ---- Central Park ----
     g.fillStyle = '#78bb5e'; g.fillRect(0, 0, 600, H);
-    for (let i = 0; i < 2500; i++) {
+    for (let i = 0; i < 4600; i++) {
       g.fillStyle = R() < 0.5 ? 'rgba(255,255,255,.06)' : 'rgba(0,70,0,.07)';
       g.fillRect(R() * 600, R() * H, 4, 4);
     }
@@ -105,6 +126,9 @@
     path([600, 760, 450, 790, 300, 770, 150, 750, 60, 1000]);
     path([600, 1560, 420, 1560, 300, 1580, 150, 1600, 0, 1700]);
     path([450, 300, 400, 250, 420, 200]);
+    path([60, 1000, 20, 1300, 40, 1600, 60, 1900, 30, 2200, 10, 2500, 60, 2800, 100, 3100, 60, 3300]);
+    path([600, 2060, 450, 2080, 300, 2100, 150, 2150, 30, 2200]);
+    path([600, 3070, 500, 3000, 420, 2900, 360, 2860, 300, 2870]);
     // Reservoir + running track
     ell(300, 1250, 238, 290, '#d8c7a0');
     ell(300, 1250, 222, 274, '#4f9fd8');
@@ -112,9 +136,7 @@
     g.strokeStyle = 'rgba(255,255,255,.4)'; g.lineWidth = 2;
     for (let i = 0; i < 26; i++) {
       const x = 120 + R() * 360, y = 1010 + R() * 480;
-      if (((x - 300) / 200) ** 2 + ((y - 1250) / 245) ** 2 < 1) {
-        g.beginPath(); g.moveTo(x - 10, y); g.quadraticCurveTo(x, y - 5, x + 10, y); g.stroke();
-      }
+      if (inEll(x, y, 300, 1250, 200, 245)) { g.beginPath(); g.moveTo(x - 10, y); g.quadraticCurveTo(x, y - 5, x + 10, y); g.stroke(); }
     }
     label('Jacqueline Kennedy Onassis Reservoir', 300, 1250, 14, 'rgba(255,255,255,.85)');
     label('Great Lawn', 250, 450, 16, 'rgba(40,90,30,.7)');
@@ -122,19 +144,27 @@
     ell(190, 668, 128, 54, '#6aa653');
     ell(190, 668, 120, 48, '#4f9fd8');
     ell(170, 660, 70, 22, 'rgba(255,255,255,.12)');
-    for (const [x, y] of [[90, 690], [110, 640], [280, 700], [250, 630]]) { ell(x, y, 7, 5, '#3d8a3a'); }
+    for (const [x, y] of [[90, 690], [110, 640], [280, 700], [250, 630]]) ell(x, y, 7, 5, '#3d8a3a');
     label('Turtle Pond', 190, 700, 12, 'rgba(255,255,255,.85)');
     g.fillStyle = '#8b8d93'; g.fillRect(312, 590, 46, 34);
     g.fillStyle = '#a4a7ae'; g.fillRect(316, 594, 38, 26);
     g.fillStyle = '#7a7c82'; g.fillRect(340, 572, 18, 24);
     for (let x = 312; x < 358; x += 9) g.fillRect(x, 586, 5, 5);
     g.fillStyle = '#c62828'; g.fillRect(348, 560, 2, 12); g.fillRect(350, 560, 7, 5);
-    for (let i = 0; i < 460; i++) {
+    // Ballfields
+    ell(300, 2700, 205, 172, '#8fce74');
+    for (const [bx, by] of [[210, 2620], [390, 2620], [300, 2790]]) {
+      g.fillStyle = '#d9b27c';
+      g.beginPath(); g.moveTo(bx, by - 42); g.lineTo(bx + 42, by); g.lineTo(bx, by + 42); g.lineTo(bx - 42, by); g.closePath(); g.fill();
+      ell(bx, by, 22, 22, '#8fce74');
+      g.fillStyle = '#fff'; for (const [dx, dy] of [[0, -42], [42, 0], [0, 42], [-42, 0]]) g.fillRect(bx + dx - 3, by + dy - 3, 6, 6);
+    }
+    label('Ballfields', 300, 2870, 14, 'rgba(40,90,30,.75)');
+    for (let i = 0; i < 850; i++) {
       const x = 10 + R() * 575, y = R() * H;
-      if (((x - 300) / 252) ** 2 + ((y - 1250) / 305) ** 2 < 1) continue;
-      if (((x - 190) / 140) ** 2 + ((y - 668) / 64) ** 2 < 1) continue;
+      if (inEll(x, y, 300, 1250, 252, 305) || inEll(x, y, 190, 668, 140, 64) || inEll(x, y, 250, 450, 215, 162)) continue;
+      if (inEll(x, y, 300, 2700, 222, 190)) continue;
       if (x > 300 && x < 370 && y > 550 && y < 640) continue;
-      if (((x - 250) / 215) ** 2 + ((y - 450) / 162) ** 2 < 1) continue;
       if (x > 360 && y > 45 && y < 755) continue;
       tree(x, y, 9 + R() * 9);
     }
@@ -157,13 +187,15 @@
     label('Temple of Dendur', 490, 100, 13, '#2f5566', 'rgba(255,255,255,.7)');
 
     // ---- city blocks ----
-    const XS = [[660, 1100], [1150, 1600], [1680, 2100], [2150, 2400]];
-    const YS = [[0, 300], [344, 800], [844, 1300], [1344, 1650], [1700, 1800]];
-    const BROWN = ['#b07a62', '#9c6b58', '#c4ab8c', '#a8927a', '#8f7d6d', '#c98f6f', '#b9a58a', '#a3765f'];
-    for (const [x0, x1] of XS) for (const [y0, y1] of YS) {
+    const BROWN = ['#b07a62', '#9c6b58', '#c4ab8c', '#a8927a', '#8f7d6d', '#c98f6f', '#b9a58a', '#a3765f', '#b5b0a6', '#9aa0a8'];
+    const special = (x0, y0) => (x0 === 1150 && y0 === 844) || (x0 === 1680 && y0 === 344) || (x0 === 1680 && y0 === 0) ||
+      (x0 === 660 && y0 === 2644) || (x0 === 4100 && y0 >= 2644);
+    const cols = [...XS, [STREET_END, RIVER_X]];
+    for (const [x0, x1] of cols) for (const [y0, y1] of YS) {
+      if (x0 === STREET_END && y0 >= 844) continue; // Carl Schurz Park
       g.fillStyle = '#d7d0c1'; g.fillRect(x0, y0, x1 - x0, y1 - y0);
       g.strokeStyle = '#bdb5a4'; g.lineWidth = 2; g.strokeRect(x0 + 1, y0 + 1, x1 - x0 - 2, y1 - y0 - 2);
-      if ((x0 === 1150 && y0 === 844) || (x0 === 1680 && y0 === 344)) continue;
+      if (special(x0, y0)) continue;
       const ix0 = x0 + 14, ix1 = x1 - 14, iy0 = y0 + 14, iy1 = y1 - 14, mid = (iy0 + iy1) / 2;
       for (const [ra, rb] of [[iy0, mid], [mid, iy1]]) {
         let x = ix0;
@@ -206,20 +238,92 @@
     g.fillStyle = '#f2c14e'; g.fillRect(1941, 540, 8, 50); g.fillRect(1929, 552, 32, 8);
     label('St. Ignatius Loyola', 1830, 780, 15, '#3b2f5c');
 
+    // ---- Loyola School ----
+    g.fillStyle = '#9c8b78'; g.fillRect(1694, 14, 392, 272);
+    g.fillStyle = '#c9b89f'; g.fillRect(1700, 20, 380, 260);
+    g.fillStyle = 'rgba(60,80,120,.28)';
+    for (let x = 1716; x < 2070; x += 24) for (let y = 40; y < 250; y += 24) g.fillRect(x, y, 12, 8);
+    label('Loyola School', 1890, 210, 15, '#3b2f5c', 'rgba(255,253,247,.8)');
+
+    // ---- Neue Galerie ----
+    g.fillStyle = '#e8e2d4'; g.fillRect(674, 1714, 150, 120);
+    g.fillStyle = '#d4ccba'; for (let x = 684; x < 816; x += 22) g.fillRect(x, 1724, 12, 100);
+    label('Neue Galerie', 750, 1850, 12, '#6b5b3a', 'rgba(255,253,247,.8)');
+
+    // ---- The Guggenheim ----
+    g.fillStyle = '#e9e6dd'; g.fillRect(674, 2658, 412, 378);
+    for (let r = 150; r > 20; r -= 26) ell(860, 2840, r, r * 0.92, r % 52 === 20 ? '#f7f5ef' : '#e2ded2');
+    g.strokeStyle = '#c9c3b3'; g.lineWidth = 3;
+    g.beginPath();
+    for (let a = 0; a < Math.PI * 8; a += 0.1) { const r = 18 + a * 5.2; g.lineTo(860 + Math.cos(a) * r, 2840 + Math.sin(a) * r * 0.92); }
+    g.stroke();
+    g.fillStyle = '#d8d2c2'; g.fillRect(1000, 2680, 70, 330);
+    label('GUGGENHEIM', 880, 3010, 18, '#5b5346', 'rgba(255,253,247,.85)');
+
+    // ---- Asphalt Green ----
+    g.fillStyle = '#2f8f4e'; g.fillRect(4114, 2658, 312, 378);
+    g.strokeStyle = 'rgba(255,255,255,.8)'; g.lineWidth = 3;
+    g.strokeRect(4134, 2678, 272, 338);
+    g.beginPath(); g.moveTo(4134, 2847); g.lineTo(4406, 2847); g.stroke();
+    g.beginPath(); g.arc(4270, 2847, 40, 0, 7); g.stroke();
+    g.fillStyle = '#c96f4a'; g.fillRect(4114, 3108, 312, 178);
+    g.fillStyle = '#5ab2e8'; g.fillRect(4140, 3130, 260, 130);
+    g.strokeStyle = 'rgba(255,255,255,.7)'; g.lineWidth = 2;
+    for (let y = 3150; y < 3260; y += 20) { g.beginPath(); g.moveTo(4145, y); g.lineTo(4395, y); g.stroke(); }
+    label('ASPHALT GREEN', 4270, 2700, 15, '#fff', 'rgba(20,60,30,.6)');
+
+    // ---- Carl Schurz Park + Gracie Mansion ----
+    g.fillStyle = '#78bb5e'; g.fillRect(STREET_END, 844, RIVER_X - STREET_END, H - 844);
+    for (let i = 0; i < 900; i++) { g.fillStyle = R() < 0.5 ? 'rgba(255,255,255,.06)' : 'rgba(0,70,0,.07)'; g.fillRect(STREET_END + R() * 310, 844 + R() * (H - 844), 4, 4); }
+    g.fillStyle = '#e2d6b4'; g.fillRect(4740, 844, 60, H - 844);
+    g.fillStyle = '#6b6f78'; g.fillRect(4796, 844, 4, H - 844);
+    g.strokeStyle = '#e8dcbc'; g.lineWidth = 10;
+    path([4500, 1000, 4600, 1300, 4560, 1600, 4520, 1900, 4600, 2200, 4680, 2500, 4620, 2640]);
+    g.fillStyle = '#c9b88f'; g.fillRect(4555, 1100, 90, 90); g.fillStyle = '#b7a67c'; g.fillRect(4560, 1105, 80, 80);
+    label('Dog Run', 4600, 1205, 11, '#5b5346');
+    g.fillStyle = '#e8d38a'; g.fillRect(4575, 2640, 130, 100);
+    g.fillStyle = '#f7f3e8'; g.fillRect(4575, 2640, 130, 10); g.fillRect(4575, 2730, 130, 10);
+    g.fillStyle = '#2b4a2f'; for (let x = 4585; x < 4700; x += 16) g.fillRect(x, 2665, 8, 12);
+    label('Gracie Mansion', 4640, 2765, 12, '#5b5346', 'rgba(255,253,247,.8)');
+    for (let i = 0; i < 170; i++) {
+      const x = STREET_END + 12 + R() * 240, y = 860 + R() * (H - 870);
+      if (x > 4550 && x < 4720 && y > 2620 && y < 2860) continue;
+      if (x > 4540 && x < 4660 && y > 1090 && y < 1220) continue;
+      tree(x, y, 9 + R() * 8);
+    }
+    label('Carl Schurz Park', 4620, 900, 15, 'rgba(30,70,25,.75)');
+
+    // ---- East River ----
+    const rg = g.createLinearGradient(RIVER_X, 0, W, 0);
+    rg.addColorStop(0, '#3f8fcf'); rg.addColorStop(1, '#2a6fa8');
+    g.fillStyle = rg; g.fillRect(RIVER_X, 0, W - RIVER_X, H);
+    g.strokeStyle = 'rgba(255,255,255,.3)'; g.lineWidth = 2;
+    for (let i = 0; i < 120; i++) {
+      const x = RIVER_X + 10 + R() * (W - RIVER_X - 20), y = R() * H;
+      g.beginPath(); g.moveTo(x - 12, y); g.quadraticCurveTo(x, y - 5, x + 12, y); g.stroke();
+    }
+    g.fillStyle = '#8d5a3b'; g.fillRect(4870, 1880, 46, 22); g.fillStyle = '#e8e2d4'; g.fillRect(4880, 1872, 18, 10);
+    g.fillStyle = '#c62828'; g.fillRect(4903, 1866, 6, 12);
+    g.save(); g.translate(4900, 1400); g.rotate(-Math.PI / 2);
+    label('EAST RIVER', 0, 0, 22, 'rgba(255,255,255,.6)');
+    g.restore();
+    g.save(); g.translate(4900, 3050); g.rotate(-Math.PI / 2);
+    label('HELL GATE', 0, 0, 16, 'rgba(255,255,255,.55)');
+    g.restore();
+
     // ---- roads ----
     g.fillStyle = '#50535e';
-    for (const [a, b] of VR) g.fillRect(a, 0, b - a, H);
-    for (const [a, b] of HR) g.fillRect(600, a, W - 600, b - a);
+    for (const [a, b] of AVES) g.fillRect(a, 0, b - a, H);
+    for (const [a, b] of STREETS) g.fillRect(600, a, streetEnd(a) - 600, b - a);
     g.setLineDash([18, 16]); g.lineWidth = 2;
-    for (const [a, b] of VR) {
+    for (const [a, b] of AVES) {
       if (a === 1600) continue;
       g.strokeStyle = '#e8c547'; g.beginPath(); g.moveTo((a + b) / 2, 0); g.lineTo((a + b) / 2, H); g.stroke();
     }
-    for (const [a, b] of HR) {
-      g.strokeStyle = 'rgba(255,255,255,.7)'; g.beginPath(); g.moveTo(660, (a + b) / 2); g.lineTo(W, (a + b) / 2); g.stroke();
+    for (const [a, b] of STREETS) {
+      g.strokeStyle = 'rgba(255,255,255,.7)'; g.beginPath(); g.moveTo(660, (a + b) / 2); g.lineTo(streetEnd(a), (a + b) / 2); g.stroke();
     }
     g.setLineDash([]);
-    // Park Ave median with tulips
     const TUL = ['#e63946', '#f4a261', '#f7d046', '#e76f9d'];
     for (const [y0, y1] of YS) {
       g.fillStyle = '#6fae55'; g.fillRect(1630, y0 + 4, 20, y1 - y0 - 8);
@@ -227,33 +331,60 @@
         g.fillStyle = TUL[Math.floor(R() * 4)]; g.beginPath(); g.arc(1634 + R() * 12, y, 2.6, 0, 7); g.fill();
       }
     }
-    // crosswalks
     g.fillStyle = 'rgba(255,255,255,.85)';
-    for (const [va, vb] of VR) for (const [ha, hb] of HR) {
+    for (const [va, vb] of AVES) for (const [ha, hb] of STREETS) {
+      if (va >= streetEnd(ha)) continue;
       for (let x = va + 4; x < vb - 4; x += 9) { g.fillRect(x, ha - 13, 5, 10); g.fillRect(x, hb + 3, 5, 10); }
-      for (let y = ha + 4; y < hb - 4; y += 9) { if (va !== 600) g.fillRect(va - 13, y, 10, 5); g.fillRect(vb + 3, y, 10, 5); }
+      for (let y = ha + 4; y < hb - 4; y += 9) { if (va !== 600) g.fillRect(va - 13, y, 10, 5); if (vb < streetEnd(ha)) g.fillRect(vb + 3, y, 10, 5); }
     }
-    // road names
     g.font = '700 13px "Trebuchet MS", sans-serif'; g.fillStyle = 'rgba(255,255,255,.75)';
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    for (const [a, b, n] of VR) for (const y of [150, 570, 1070, 1500]) {
-      g.save(); g.translate(a === 1600 ? 1615 : (a + b) / 2 - 12, y); g.rotate(-Math.PI / 2); g.fillText(n.toUpperCase(), 0, 0); g.restore();
+    for (const [a, b, n] of AVES) for (const [y0, y1] of YS) {
+      g.save(); g.translate(a === 1600 ? 1615 : (a + b) / 2 - 12, (y0 + y1) / 2); g.rotate(-Math.PI / 2); g.fillText(n.toUpperCase(), 0, 0); g.restore();
     }
-    for (const [a, b, n] of HR) for (const x of [880, 1375, 1890, 2275]) g.fillText(n.toUpperCase(), x, (a + b) / 2 - 11);
+    for (const [a, b, n] of STREETS) for (const [x0, x1] of XS) g.fillText(n.toUpperCase(), (x0 + x1) / 2, (a + b) / 2 - 11);
 
-    // ---- subway, deli, café ----
-    g.fillStyle = '#2e5e34'; g.fillRect(2163, 1588, 44, 36);
-    g.strokeStyle = '#cfd8cf'; g.lineWidth = 2;
-    for (let y = 1594; y < 1622; y += 6) { g.beginPath(); g.moveTo(2168, y); g.lineTo(2202, y); g.stroke(); }
-    ell(2160, 1586, 6, 6, '#7ee081'); ell(2210, 1586, 6, 6, '#7ee081');
-    label('86 St  4 5 6', 2185, 1566, 13, '#fff', '#1b5e20');
-    for (let i = 0; i < 8; i++) { g.fillStyle = i % 2 ? '#fff' : '#c62828'; g.fillRect(2168 + i * 12, 972, 12, 16); }
-    label('DELI', 2215, 1025, 13, '#fff', '#c62828');
-    for (let i = 0; i < 6; i++) { g.fillStyle = i % 2 ? '#f5efe0' : '#2e7d4f'; g.fillRect(1030 + i * 11, 544, 11, 14); }
-    label('CAFÉ', 1063, 590, 12, '#fff', '#2e7d4f');
+    // ---- subway entrances and storefronts ----
+    const subway = (x, y, txt) => {
+      g.fillStyle = '#2e5e34'; g.fillRect(x - 22, y - 27, 44, 36);
+      g.strokeStyle = '#cfd8cf'; g.lineWidth = 2;
+      for (let yy = y - 21; yy < y + 7; yy += 6) { g.beginPath(); g.moveTo(x - 17, yy); g.lineTo(x + 17, yy); g.stroke(); }
+      ell(x - 25, y - 29, 6, 6, '#7ee081'); ell(x + 25, y - 29, 6, 6, '#7ee081');
+      label(txt, x, y - 49, 13, '#fff', '#1b5e20');
+    };
+    subway(2185, 1615, '86 St  4 5 6');
+    subway(3185, 1745, '86 St  Q');
+    awning(2168, 972, 8, '#fff', '#c62828'); label('DELI', 2215, 1025, 13, '#fff', '#c62828');
+    awning(1030, 544, 6, '#f5efe0', '#2e7d4f'); label('CAFÉ', 1063, 590, 12, '#fff', '#2e7d4f');
+    awning(3355, 2200, 8, '#fff', '#1d4ed8'); label('BAKERY', 3400, 2250, 12, '#fff', '#1d4ed8');
+    awning(3670, 972, 5, '#fff', '#b91c1c'); label('DINER', 3698, 1025, 12, '#fff', '#b91c1c');
+    for (const x of [2190, 2290, 2410, 2520]) awning(x, 1706, 5, '#fff', ['#7c3aed', '#db2777', '#0f766e', '#ea580c'][(x / 10) % 4 | 0]);
+  }
+
+  // The map is drawn lazily in 1024px tiles so phones never hold one giant canvas.
+  const TILE = 1024, tiles = new Map();
+  function getTile(tx, ty) {
+    const key = tx + ',' + ty;
+    let cv = tiles.get(key);
+    if (!cv) {
+      cv = document.createElement('canvas'); cv.width = TILE; cv.height = TILE;
+      const g = cv.getContext('2d');
+      g.translate(-tx * TILE, -ty * TILE);
+      drawWorld(g);
+      tiles.set(key, cv);
+    }
     return cv;
   }
-  const world = buildWorld();
+  const OV = 0.1;
+  let overview = null;
+  function getOverview() {
+    if (!overview) {
+      overview = document.createElement('canvas');
+      overview.width = Math.ceil(W * OV); overview.height = Math.ceil(H * OV);
+      const g = overview.getContext('2d'); g.scale(OV, OV); drawWorld(g);
+    }
+    return overview;
+  }
 
   // ---------------- canvas / sizing ----------------
   const mapCv = $('#map'), ctx = mapCv.getContext('2d');
@@ -272,7 +403,8 @@
   const P = { x: S.px, y: S.py, dir: -Math.PI / 2, face: 1, moving: false, walkT: 0, puffT: 0 };
   let mode = 'map', modalOpen = false;
   let spawns = [], floaters = [], puffs = [], target = null, holding = false;
-  let zone = null, spawnTimer = 0, nearbyTimer = 0, saveTimer = 0;
+  let zone = null, zoneName = '', spawnTimer = 0, nearbyTimer = 0, saveTimer = 0;
+  let npcs = [], npcTimer = 3;
   let C = null;
   const keys = {};
 
@@ -353,6 +485,20 @@
       else toast('Too far away — walk closer! 🚶');
       return;
     }
+    for (const n of npcs) {
+      if (hyp(w.x, w.y, n.x, n.y - 25) < 30) {
+        if (hyp(P.x, P.y, n.x, n.y) <= RANGE) challengeNPC(n);
+        else toast(`🎒 <b>${n.name}</b> wants to battle!<br>Walk closer to challenge them.`);
+        return;
+      }
+    }
+    for (const a of ARENAS) {
+      if (hyp(w.x, w.y, a.x, a.y - 40) < 40) {
+        if (hyp(P.x, P.y, a.x, a.y) <= RANGE) challengeArena(a);
+        else toast(`⚔️ <b>${a.name}</b><br>Leader: ${a.leader}. Walk closer to battle.`);
+        return;
+      }
+    }
     for (const st of STOPS) {
       if (hyp(w.x, w.y, st.x, st.y - 38) < 34) { tapStop(st); return; }
     }
@@ -424,10 +570,13 @@
     if (z !== zone) {
       const first = zone === null;
       zone = z;
-      const name = z === 'water' ? (P.y < 900 ? 'Turtle Pond' : 'The Reservoir') : ZONES[z];
-      $('#zone-chip').textContent = `📍 ${name}`;
-      if (!first) toast(`📍 <b>${name}</b><br>${ZONE_HINTS[z]}`);
+      zoneName = zoneLabel(z, P.x, P.y);
+      if (!first) toast(`📍 <b>${zoneName}</b><br>${ZONE_HINTS[z]}`);
     }
+    // the label can change inside one zone (e.g. Upper East Side → Yorkville)
+    const label = zoneLabel(z, P.x, P.y);
+    if (label !== zoneName || $('#zone-chip').dataset.l !== label) { zoneName = label; $('#zone-chip').textContent = `📍 ${label}`; $('#zone-chip').dataset.l = label; }
+    updateNPCs(dt);
 
     const now = Date.now();
     spawns = spawns.filter(s => s.expires > now && hyp(s.x, s.y, P.x, P.y) < 1100);
@@ -492,24 +641,22 @@
     return [fx, fy];
   }
 
-  function drawPlayer(t) {
-    const { x, y } = P, run = P.moving;
-    const ph = P.walkT * 13;                 // run-cycle phase
+  const PLAYER_LOOK = { blazer: '#1f3a93', arm: '#2447ad', armBack: '#152b6e', pack: '#8c1d2f', hair: '#3a2a1f', skin: '#f0c8a0', tie: '#f2c14e' };
+
+  // Draws a running/idle person. `o` needs x, y, face, moving, walkT.
+  function drawPerson(o, look, t) {
+    const { x, y } = o, run = o.moving;
+    const ph = o.walkT * 13;                 // run-cycle phase
     const s = Math.sin(ph);
-    const bob = run ? -Math.abs(Math.cos(ph)) * 3.5 : Math.sin(t / 450) * 0.8;
+    const bob = run ? -Math.abs(Math.cos(ph)) * 3.5 : Math.sin(t / 450 + x) * 0.8;
     const lean = run ? 0.17 : 0;
 
     ctx.fillStyle = 'rgba(0,0,0,.22)';
     ctx.beginPath(); ctx.ellipse(x, y, run ? 12 + Math.abs(Math.cos(ph)) * 3 : 14, 5.5, 0, 0, 7); ctx.fill();
-    // heading wedge
-    ctx.save(); ctx.translate(x, y); ctx.rotate(P.dir);
-    ctx.fillStyle = 'rgba(31,58,147,.5)';
-    ctx.beginPath(); ctx.moveTo(27, 0); ctx.lineTo(17, -7); ctx.lineTo(17, 7); ctx.closePath(); ctx.fill();
-    ctx.restore();
 
     ctx.save();
     ctx.translate(x, y + bob);
-    ctx.scale(P.face, 1);
+    ctx.scale(o.face, 1);
     const hipY = -15;
     // leg angles: thigh swings with the cycle; the knee folds when the leg is behind
     const leg = k => {
@@ -522,38 +669,168 @@
     const [ua, fa] = arm(s), [ub, fb] = arm(-s);
 
     ctx.save(); ctx.translate(0, hipY); ctx.rotate(lean); ctx.translate(0, -hipY);
-    // back arm
-    limb(-1, -28, ub, 6.5, fb, 6, 4.5, '#152b6e');
+    limb(-1, -28, ub, 6.5, fb, 6, 4.5, look.armBack);
     ctx.restore();
 
-    // back leg, then front leg
     const bf = limb(-1, hipY, b1, 8, b2, 8, 5, '#23232d');
     ctx.fillStyle = '#111'; ctx.beginPath(); ctx.ellipse(bf[0] + 1.5, bf[1], 3.8, 2.2, 0, 0, 7); ctx.fill();
     const ff = limb(1, hipY, a1, 8, a2, 8, 5, '#2e2e3a');
     ctx.fillStyle = '#1b1b1b'; ctx.beginPath(); ctx.ellipse(ff[0] + 1.5, ff[1], 3.8, 2.2, 0, 0, 7); ctx.fill();
 
-    // upper body leans into the run
     ctx.save(); ctx.translate(0, hipY); ctx.rotate(lean); ctx.translate(0, -hipY);
-    ctx.fillStyle = '#8c1d2f'; rr(ctx, -12, -31, 6, 14, 2.5); ctx.fill();          // backpack
-    ctx.fillStyle = '#1f3a93'; rr(ctx, -8, -33, 16, 20, 6); ctx.fill();            // blazer
+    ctx.fillStyle = look.pack; rr(ctx, -12, -31, 6, 14, 2.5); ctx.fill();
+    ctx.fillStyle = look.blazer; rr(ctx, -8, -33, 16, 20, 6); ctx.fill();
     ctx.fillStyle = '#fff';
     ctx.beginPath(); ctx.moveTo(1, -33); ctx.lineTo(8, -33); ctx.lineTo(4, -25); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#f2c14e'; ctx.fillRect(3.5, -31, 2.5, 9);
-    // head
-    ctx.fillStyle = '#f0c8a0'; ctx.beginPath(); ctx.arc(1.5, -41, 8.5, 0, 7); ctx.fill();
-    ctx.fillStyle = '#3a2a1f';
+    ctx.fillStyle = look.tie; ctx.fillRect(3.5, -31, 2.5, 9);
+    ctx.fillStyle = look.skin; ctx.beginPath(); ctx.arc(1.5, -41, 8.5, 0, 7); ctx.fill();
+    ctx.fillStyle = look.hair;
     ctx.beginPath(); ctx.arc(1.5, -42.5, 8.7, Math.PI * 0.95, Math.PI * 1.9); ctx.fill();
     ctx.beginPath(); ctx.arc(-3, -41, 5, Math.PI * 0.5, Math.PI * 1.5); ctx.fill();
     ctx.fillStyle = '#1b1b2f'; ctx.fillRect(5.5, -42.5, 2, 2.6);
     ctx.fillStyle = '#c47a62'; ctx.fillRect(5, -37.5, 3, 1.2);
-    // front arm
-    limb(1, -28, ua, 6.5, fa, 6, 4.5, '#2447ad');
-    ctx.fillStyle = '#f0c8a0';
+    limb(1, -28, ua, 6.5, fa, 6, 4.5, look.arm);
+    ctx.fillStyle = look.skin;
     const hx = 1 + Math.sin(ua) * 6.5 + Math.sin(fa) * 6, hy = -28 + Math.cos(ua) * 6.5 + Math.cos(fa) * 6;
     ctx.beginPath(); ctx.arc(hx, hy, 2.3, 0, 7); ctx.fill();
     ctx.restore();
     ctx.restore();
   }
+
+  function drawPlayer(t) {
+    ctx.save(); ctx.translate(P.x, P.y); ctx.rotate(P.dir);
+    ctx.fillStyle = 'rgba(31,58,147,.5)';
+    ctx.beginPath(); ctx.moveTo(27, 0); ctx.lineTo(17, -7); ctx.lineTo(17, 7); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    drawPerson(P, PLAYER_LOOK, t);
+  }
+
+  // ---------------- wandering student trainers ----------------
+  const NPC_BLAZERS = [['#8c1d2f', '#a32439', '#6e1624'], ['#2e7d4f', '#379460', '#22603c'], ['#5b21b6', '#6d28d9', '#4c1d95'],
+    ['#b45309', '#c2610f', '#8f4207'], ['#0f766e', '#12897f', '#0b5c56'], ['#374151', '#4b5563', '#1f2937']];
+  const NPC_HAIR = ['#1b1b1b', '#6b3e26', '#c9a66b', '#3a2a1f', '#8a4b2a'];
+  const NPC_SKIN = ['#f0c8a0', '#d7a27a', '#a86b45', '#7a4a2a', '#f5d5b8'];
+  const NPC_QUOTES = ['Our eyes met — that means we battle!', 'I just caught these this morning. Let’s go!', 'Bet you can’t beat my team.',
+    'Loser buys the bagels.', 'I’ve been training all through lunch.', 'My Regimon aced their midterms.'];
+  const pick = a => a[Math.floor(Math.random() * a.length)];
+  const walkable = (x, y) => x > 30 && y > 30 && x < RIVER_X - 20 && y < H - 30 && zoneAt(x, y) !== 'water';
+
+  function spawnNPC() {
+    for (let tries = 0; tries < 12; tries++) {
+      const a = Math.random() * Math.PI * 2, r = rnd(320, 750);
+      const x = P.x + Math.cos(a) * r, y = P.y + Math.sin(a) * r;
+      if (!walkable(x, y)) continue;
+      const z = zoneAt(x, y), size = 1 + Math.floor(Math.random() * 3), team = [];
+      while (team.length < size) { const sp = pickSpecies(z); if (sp.rarity < 5) team.push(sp.id); }
+      const [blazer, arm, armBack] = pick(NPC_BLAZERS);
+      const used = new Set(npcs.map(n => n.name));
+      npcs.push({
+        name: pick(TRAINER_NAMES.filter(n => !used.has(n))), x, y, face: 1, moving: false, walkT: 0, tx: x, ty: y, wait: rnd(0.5, 3),
+        team, look: { blazer, arm, armBack, pack: pick(['#1f3a93', '#f2c14e', '#111827', '#dc2626']), hair: pick(NPC_HAIR), skin: pick(NPC_SKIN), tie: '#f2c14e' },
+      });
+      return;
+    }
+  }
+  function updateNPCs(dt) {
+    npcs = npcs.filter(n => hyp(n.x, n.y, P.x, P.y) < 1400);
+    npcTimer -= dt;
+    if (npcTimer <= 0) { npcTimer = rnd(8, 15); if (npcs.length < 3) spawnNPC(); }
+    for (const n of npcs) {
+      if (n.wait > 0) { n.wait -= dt; n.moving = false; n.walkT = 0; continue; }
+      const dx = n.tx - n.x, dy = n.ty - n.y, d = Math.hypot(dx, dy);
+      if (d < 3) {
+        n.wait = rnd(1, 4);
+        for (let k = 0; k < 6; k++) {
+          const tx = n.x + rnd(-170, 170), ty = n.y + rnd(-170, 170);
+          if (walkable(tx, ty)) { n.tx = tx; n.ty = ty; break; }
+        }
+        continue;
+      }
+      const step = Math.min(d, 70 * dt);
+      n.x += dx / d * step; n.y += dy / d * step;
+      n.moving = true; n.walkT += dt * 0.7;
+      if (Math.abs(dx) > 1) n.face = dx > 0 ? 1 : -1;
+    }
+  }
+  function drawNPC(n, t) {
+    drawPerson(n, n.look, t);
+    if (hyp(n.x, n.y, P.x, P.y) <= RANGE) {
+      const by = n.y - 66 + Math.sin(t / 200) * 2;
+      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#14204a'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(n.x, by, 11, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#dc2626'; ctx.font = '900 15px "Trebuchet MS", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('!', n.x, by + 1);
+      ctx.font = '700 11px "Trebuchet MS", sans-serif';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.strokeText(n.name, n.x, n.y + 14);
+      ctx.fillStyle = '#14204a'; ctx.fillText(n.name, n.x, n.y + 14);
+    }
+  }
+
+  // ---------------- arenas ----------------
+  function drawArena(a, t) {
+    const won = !!S.badges[a.id], inR = hyp(P.x, P.y, a.x, a.y) <= RANGE;
+    ctx.fillStyle = 'rgba(0,0,0,.22)';
+    ctx.beginPath(); ctx.ellipse(a.x, a.y, 30, 11, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#e7e2d6'; ctx.beginPath(); ctx.ellipse(a.x, a.y - 3, 26, 9, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#9aa1ad'; ctx.fillRect(a.x - 9, a.y - 52, 18, 50);
+    ctx.fillStyle = '#c3c8d1'; ctx.fillRect(a.x - 9, a.y - 52, 6, 50);
+    const top = a.y - 60 + Math.sin(t / 500 + a.x) * 2;
+    if (inR) {
+      const p = (t / 900) % 1;
+      ctx.strokeStyle = `rgba(242,193,78,${0.7 * (1 - p)})`; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.ellipse(a.x, top, 26 + p * 20, (26 + p * 20) * 0.45, 0, 0, 7); ctx.stroke();
+    }
+    ctx.fillStyle = a.color; ctx.beginPath(); ctx.ellipse(a.x, top, 26, 11, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.5; ctx.stroke();
+    ctx.font = '22px "Segoe UI Emoji", "Apple Color Emoji", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(won ? '🏆' : '⚔️', a.x, top - 16);
+    if (inR) {
+      ctx.font = '700 12px "Trebuchet MS", sans-serif';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.strokeText(a.name, a.x, a.y + 16);
+      ctx.fillStyle = '#14204a'; ctx.fillText(a.name, a.x, a.y + 16);
+    }
+  }
+
+  // ---------------- battles ----------------
+  function challengeArena(a) {
+    const first = !S.badges[a.id];
+    Battle.challenge({
+      name: a.leader, title: `${a.title} · ${a.name}`, quote: a.quote, team: a.team, color: a.color, icon: first ? '⚔️' : '🏆',
+      badge: !first, tier: a.tier, levelMult: 0.8 + a.tier * 0.05, levelAdd: a.tier, smart: 0.6 + a.tier * 0.06,
+      winQuote: 'Train harder and come back. The arena will be here.',
+      onResult: win => {
+        const out = [];
+        if (win) {
+          const xp = first ? 600 + a.tier * 150 : 150 + a.tier * 40;
+          const items = first ? { regi: 10, honors: 3 + a.tier, magna: a.tier >= 3 ? 2 : 1 } : { regi: 5, honors: 1 };
+          for (const k in items) S.items[k] += items[k];
+          if (first) { S.badges[a.id] = true; out.push(`🏅 ${a.name} badge!`); }
+          out.push(`+${xp} XP`, Object.entries(items).map(([k, n]) => `+${n} ${BALLS[k].name}${n > 1 ? 's' : ''}`).join(' · '));
+          addXP(xp);
+        } else { addXP(50); out.push('+50 XP for trying'); }
+        save();
+        return out;
+      },
+    });
+  }
+  function challengeNPC(n) {
+    Battle.challenge({
+      name: n.name, title: 'Wandering trainer', quote: pick(NPC_QUOTES), team: n.team, color: n.look.blazer, icon: '🎒',
+      tier: 1, levelMult: 0.85, levelAdd: -1, smart: 0.5,
+      onResult: win => {
+        npcs = npcs.filter(x => x !== n);
+        if (win) { S.items.regi += 3; S.items.bagel += 1; addXP(200); save(); return ['+200 XP', '+3 Regi Balls · +1 Bagel']; }
+        addXP(40); save();
+        return ['+40 XP'];
+      },
+    });
+  }
+  Battle.init({
+    get S() { return S; }, byId, Art, Music, TYPES,
+    openModal: (h, cb) => openModal(h, cb), closeModal: () => closeModal(), toast: (m, ms) => toast(m, ms),
+    onOpen: () => { mode = 'battle'; target = null; holding = false; },
+    onClose: () => { mode = 'map'; Music.play('map'); updateHUD(); renderNearby(); save(); },
+  });
 
   function drawPuffs() {
     for (const p of puffs) {
@@ -569,7 +846,10 @@
     ctx.fillStyle = '#6aa653'; ctx.fillRect(0, 0, cw, ch);
     ctx.save();
     ctx.translate(cw / 2, ch / 2); ctx.scale(zoom, zoom); ctx.translate(-P.x, -P.y);
-    ctx.drawImage(world, 0, 0);
+    const hw = cw / 2 / zoom, hh = ch / 2 / zoom;
+    const tx0 = Math.max(0, Math.floor((P.x - hw) / TILE)), tx1 = Math.min(Math.ceil(W / TILE) - 1, Math.floor((P.x + hw) / TILE));
+    const ty0 = Math.max(0, Math.floor((P.y - hh) / TILE)), ty1 = Math.min(Math.ceil(H / TILE) - 1, Math.floor((P.y + hh) / TILE));
+    for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) ctx.drawImage(getTile(tx, ty), tx * TILE, ty * TILE);
 
     // range circle
     ctx.fillStyle = 'rgba(255,255,255,.08)';
@@ -589,6 +869,8 @@
     const items = [];
     for (const st of STOPS) items.push([st.y, () => drawStop(st, t)]);
     for (const s of spawns) items.push([s.y, () => drawSpawn(s, t)]);
+    for (const a of ARENAS) if (Math.abs(a.x - P.x) < hw + 80 && Math.abs(a.y - P.y) < hh + 120) items.push([a.y, () => drawArena(a, t)]);
+    for (const n of npcs) items.push([n.y, () => drawNPC(n, t)]);
     items.push([P.y, () => drawPlayer(t)]);
     items.sort((a, b) => a[0] - b[0]);
     for (const [, fn] of items) fn();
@@ -624,6 +906,19 @@
         for (let i = 0; i < 9; i++) { const x = (i + 0.3) * w / 8; circ(x, hz - 20, 48 + (i % 3) * 10, i % 2 ? '#4d9e44' : '#3f8f3a'); }
         c.fillStyle = grad(hz, h, '#8ccf6f', '#5a9e46'); c.fillRect(0, hz, w, h - hz);
         break;
+      case 'sports':
+        c.fillStyle = grad(0, hz, '#7fc8f8', '#dff3ff'); c.fillRect(0, 0, w, hz);
+        for (let row = 0; row < 5; row++) {
+          c.fillStyle = row % 2 ? '#9aa3b0' : '#b3bbc6'; c.fillRect(0, hz - 110 + row * 22, w, 22);
+          for (let x = (row % 2) * 14; x < w; x += 28) { c.fillStyle = ['#ea580c', '#1f3a93', '#f2c14e', '#dc2626'][(x / 28 + row) % 4 | 0]; circ(x, hz - 100 + row * 22, 6, c.fillStyle); }
+        }
+        c.fillStyle = grad(hz, h, '#3fa35f', '#2a7f45'); c.fillRect(0, hz, w, h - hz);
+        c.fillStyle = 'rgba(255,255,255,.08)'; for (let y = hz; y < h; y += 60) c.fillRect(0, y, w, 30);
+        c.strokeStyle = 'rgba(255,255,255,.75)'; c.lineWidth = 4;
+        c.beginPath(); c.moveTo(0, hz + 30); c.lineTo(w, hz + 30); c.stroke();
+        c.beginPath(); c.ellipse(w / 2, hz + (h - hz) * 0.45, w * 0.22, (h - hz) * 0.18, 0, 0, 7); c.stroke();
+        break;
+      case 'river':
       case 'water':
         c.fillStyle = grad(0, hz * 0.8, '#7fc8f8', '#e4f5ff'); c.fillRect(0, 0, w, hz * 0.8);
         c.fillStyle = '#5d8f4c'; c.fillRect(0, hz * 0.62, w, hz * 0.18);
@@ -1129,6 +1424,9 @@
         ${item('<i class="ball-ico magna"></i>', 'Magna Cum Ball', S.items.magna, '2× catch rate. For the tough ones.')}
         ${item('<span class="emo">🥯</span>', 'Bagel', S.items.bagel, 'Feed before throwing — next catch is 1.5× easier.')}
       </div>
+      <h2 style="font-size:18px">🏅 Arena badges <span class="sub">${ARENAS.filter(a => S.badges[a.id]).length}/${ARENAS.length}</span></h2>
+      <div class="badges">${ARENAS.map(a => `<div class="badge ${S.badges[a.id] ? 'won' : ''}" style="--arena:${a.color}">
+        <span class="medal">${S.badges[a.id] ? '🏆' : '⚔️'}</span><b>${a.name.replace(' Arena', '')}</b><small>${a.leader}</small></div>`).join('')}</div>
       <div class="row">
         <button class="ghost" id="bag-help">❓ How to play</button>
         <button class="ghost danger" id="bag-reset">Reset progress</button>
@@ -1137,7 +1435,7 @@
     const rb = $('#bag-reset');
     rb.onclick = () => {
       if (rb.dataset.armed) {
-        S = freshState(); S.intro = true; P.x = S.px; P.y = S.py; spawns = [];
+        S = freshState(); S.intro = true; P.x = S.px; P.y = S.py; spawns = []; npcs = [];
         save(); updateHUD(); closeModal(); toast('Progress reset. Welcome back, first-year!');
         seedSpawns();
       } else { rb.dataset.armed = '1'; rb.textContent = 'Tap again to confirm'; }
@@ -1148,13 +1446,14 @@
     openModal(`<div class="intro">
       <div class="logo">👑</div>
       <h1>Regimon <span>GO</span></h1>
-      <p>Welcome to 84th Street, first-year! Wild <b>Regimon</b> are loose all over Regis, St. Ignatius Loyola, the Met and Central Park. Catch them all — <i>ad majorem Dei gloriam</i>.</p>
+      <p>Welcome to 84th Street, first-year! Wild <b>Regimon</b> are loose from Central Park to the East River. Catch them, train them, and beat every arena leader — <i>ad majorem Dei gloriam</i>.</p>
       <ul class="how">
         <li>🚶 <b>Walk</b> — tap or hold anywhere on the map (or use WASD / arrow keys).</li>
         <li>👆 <b>Encounter</b> — tap a Regimon inside your dotted circle.</li>
         <li>⚾ <b>Throw</b> — swipe the ball up at it. Land it inside the shrinking colored ring for a Nice / Great / Excellent bonus.</li>
         <li>🔷 <b>Stops</b> — tap the spinning blue diamonds near you for Regi Balls and Bagels.</li>
-        <li>🗺️ <b>Explore</b> — every area has its own Regimon. Water types swim in the Reservoir and Turtle Pond, Grass types hide in Central Park, and some legends only appear at Regis or the church…</li>
+        <li>🗺️ <b>Explore</b> — every area has its own Regimon: Water types in the Reservoir, River types in the East River, Athletic types at Asphalt Green, and legends at Regis, the church, and Gracie Mansion. Tap the map button to see the whole neighborhood and walk anywhere.</li>
+        <li>⚔️ <b>Battle</b> — tap an arena tower or a student with a <b>!</b> to battle with up to 3 Regimon. Each has 4 moves; pick moves the foe is weak to for super-effective damage. Win badges from all 6 arena leaders.</li>
         <li>🔊 <b>Music</b> — tap the speaker button to turn the music on or off.</li>
       </ul>
       <button class="primary" id="help-go">${first ? "Let's go!" : 'Got it'}</button>
@@ -1186,6 +1485,54 @@
     requestAnimationFrame(frame);
   }
 
+  // ---------------- overview map ----------------
+  const PLACES = [
+    ['Central Park', 300, 1900], ['Regis', 1375, 1070], ['The Met', 490, 400], ['Guggenheim', 880, 2840], ['Yorkville', 3400, 2400],
+    ['St. Ignatius', 1890, 570], ['Carl Schurz Park', 4640, 2000], ['East River', 4740, 420], ['Asphalt Green', 4270, 2960],
+  ];
+  function showOverview() {
+    if (mode !== 'map') return;
+    openModal(`<h2>🗺️ Upper East Side</h2>
+      <p class="sub">Tap anywhere to walk there. ⚔️ arenas · 🏆 badges won · 🔷 stops</p>
+      <div class="ov-wrap"><canvas id="ov-canvas"></canvas></div>`);
+    const cv = $('#ov-canvas'), wrap = cv.parentElement;
+    const cssW = wrap.clientWidth, s = cssW / W, cssH = H * s;
+    cv.style.width = cssW + 'px'; cv.style.height = cssH + 'px';
+    cv.width = cssW * dpr; cv.height = cssH * dpr;
+    const g = cv.getContext('2d'); g.scale(dpr, dpr);
+    g.drawImage(getOverview(), 0, 0, cssW, cssH);
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    for (const st of STOPS) { g.fillStyle = (S.cooldowns[st.id] || 0) > Date.now() ? '#b36bd9' : '#2f9df4'; g.beginPath(); g.arc(st.x * s, st.y * s, 3, 0, 7); g.fill(); }
+    g.font = '700 11px "Trebuchet MS", sans-serif';
+    for (const [n, x, y] of PLACES) {
+      g.lineWidth = 3; g.strokeStyle = 'rgba(255,255,255,.85)'; g.strokeText(n, x * s, y * s);
+      g.fillStyle = '#14204a'; g.fillText(n, x * s, y * s);
+    }
+    g.font = '15px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+    for (const a of ARENAS) g.fillText(S.badges[a.id] ? '🏆' : '⚔️', a.x * s, a.y * s - 6);
+    g.fillStyle = '#f2c14e'; g.strokeStyle = '#14204a'; g.lineWidth = 2.5;
+    g.beginPath(); g.arc(P.x * s, P.y * s, 6, 0, 7); g.fill(); g.stroke();
+    cv.onclick = e => {
+      const r = cv.getBoundingClientRect();
+      const x = clamp((e.clientX - r.left) / s, 20, W - 20), y = clamp((e.clientY - r.top) / s, 20, H - 20);
+      target = { x, y }; holding = false;
+      closeModal();
+      toast(`🚶 Walking to ${zoneLabel(zoneAt(x, y), x, y)}…`);
+    };
+  }
+  $('#btn-map').onclick = showOverview;
+
+  // Draw the remaining map tiles in the background so walking never stutters.
+  function prebuildTiles() {
+    const todo = [];
+    for (let ty = 0; ty < Math.ceil(H / TILE); ty++) for (let tx = 0; tx < Math.ceil(W / TILE); tx++) if (!tiles.has(tx + ',' + ty)) todo.push([tx, ty]);
+    todo.sort((a, b) => hyp(a[0] * TILE, a[1] * TILE, P.x, P.y) - hyp(b[0] * TILE, b[1] * TILE, P.x, P.y));
+    if (!todo.length) { getOverview(); return; }
+    getTile(...todo[0]);
+    setTimeout(prebuildTiles, 60);
+  }
+  setTimeout(prebuildTiles, 800);
+
   // Browsers only allow audio after a user gesture, so start the music on the first tap or key press.
   addEventListener('pointerdown', Music.unlock, true);
   addEventListener('keydown', Music.unlock, true);
@@ -1202,4 +1549,5 @@
   seedSpawns();
   renderNearby();
   if (!S.intro) showHelp(true);
-  requestAnimationFrame(frame);})();
+  requestAnimationFrame(frame);
+})();

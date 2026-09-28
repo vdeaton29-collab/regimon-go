@@ -26,6 +26,7 @@
   </div>
   <div id="zone-chip" class="pill light">📍 Upper East Side</div>
   <button id="btn-sound" aria-label="Turn music off">🔊</button>
+  <button id="btn-map" aria-label="Open the neighborhood map">🗺️</button>
 
   <div id="nearby"><div class="nearby-title">Nearby</div><div id="nearby-list"></div></div>
 
@@ -55,6 +56,39 @@
     </div>
   </section>
 
+  <section id="battle" class="hidden">
+    <div class="b-field">
+      <div class="b-trainer" id="b-trainer"></div>
+      <div class="b-foe">
+        <div class="b-card">
+          <div class="b-name"><span id="bf-name"></span><span class="b-lv" id="bf-lv"></span></div>
+          <div class="b-types" id="bf-types"></div>
+          <div class="hp"><div id="bf-hp"></div></div>
+          <div class="b-team" id="bf-team"></div>
+        </div>
+        <img id="bf-img" class="b-mon" alt="">
+      </div>
+      <div class="b-me">
+        <img id="bm-img" class="b-mon mine" alt="">
+        <div class="b-card">
+          <div class="b-name"><span id="bm-name"></span><span class="b-lv" id="bm-lv"></span></div>
+          <div class="b-types" id="bm-types"></div>
+          <div class="hp"><div id="bm-hp"></div></div>
+          <div class="b-hpnum" id="bm-hpnum"></div>
+          <div class="b-team" id="bm-team"></div>
+        </div>
+      </div>
+    </div>
+    <div class="b-panel">
+      <div id="b-msg" aria-live="polite"></div>
+      <div id="b-moves"></div>
+      <div class="b-actions">
+        <button id="b-switch">🔁 Switch</button>
+        <button id="b-run">🏳️ Forfeit</button>
+      </div>
+    </div>
+  </section>
+
   <section id="modal" class="hidden">
     <div class="sheet">
       <button class="close" aria-label="Close">✕</button>
@@ -65,6 +99,7 @@
   <script src="js/data.js"></script>
   <script src="js/art.js"></script>
   <script src="js/music.js"></script>
+  <script src="js/battle.js"></script>
   <script src="js/game.js"></script>
 </body>
 </html>

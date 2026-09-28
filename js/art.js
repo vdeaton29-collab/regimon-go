@@ -152,6 +152,8 @@ window.RGArt = (() => {
 
     if (X('hat'))
       front += `<polygon points="${cx - 17},${top + 7} ${cx + 3},${top - 24} ${cx + 17},${top + 7}" fill="#3b1f7a" stroke="#241050" stroke-width="2" stroke-linejoin="round"/><ellipse cx="${cx}" cy="${top + 7}" rx="21" ry="5" fill="#2a1260"/><text x="${cx + 1}" y="${top - 3}" font-size="10" text-anchor="middle" fill="#f2c14e">★</text>`;
+    if (X('horn'))
+      front += `<polygon points="${cx - 5},${ey + 9} ${cx + 5},${ey + 9} ${cx + 3},${ey - 9}" fill="#f5f0e1" stroke="${d}" stroke-width="1.5" stroke-linejoin="round"/>`;
     if (X('cap'))
       front += `<rect x="${cx - 14}" y="${top - 9}" width="28" height="13" rx="4" fill="#1f3a93"/><rect x="${cx - 14}" y="${top}" width="28" height="3" fill="#f2c14e"/><ellipse cx="${cx}" cy="${top + 5}" rx="18" ry="3.5" fill="#1b1b2f"/>`;
     if (X('flame'))

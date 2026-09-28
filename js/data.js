@@ -1,12 +1,23 @@
 // Regimon GO — game data: world layout, stops, species.
 window.RG = (() => {
-  const W = 2400, H = 1800;
+  // The map runs west (Central Park) to east (the East River), and from 83rd St (top) to 90th St (bottom).
+  const W = 5000, H = 3300;
+  const AVES = [
+    [600, 660, '5th Ave'], [1100, 1150, 'Madison Ave'], [1600, 1680, 'Park Ave'], [2100, 2150, 'Lexington Ave'],
+    [2600, 2660, '3rd Ave'], [3100, 3160, '2nd Ave'], [3600, 3660, '1st Ave'], [4050, 4100, 'York Ave'], [4440, 4490, 'East End Ave'],
+  ];
+  const STREETS = [
+    [300, 344, 'E 83rd St'], [800, 844, 'E 84th St'], [1300, 1344, 'E 85th St'], [1650, 1700, 'E 86th St'],
+    [2150, 2194, 'E 87th St'], [2600, 2644, 'E 88th St'], [3050, 3094, 'E 89th St'],
+  ];
+  const STREET_END = 4490; // streets stop at East End Ave; Carl Schurz Park and the river lie beyond
+  const RIVER_X = 4800;
 
   const TYPES = {
     Brainy: '#8b5cf6', Classic: '#b45309', Fire: '#ef4444', Dark: '#475569',
     Normal: '#8b8f99', Grass: '#16a34a', Spirit: '#ca8a04', Electric: '#d4a106',
     Ghost: '#818cf8', Water: '#3b82f6', Steel: '#64748b', Bug: '#65a30d',
-    Flying: '#0ea5e9', Ancient: '#a16207', Royal: '#1e3a8a',
+    Flying: '#0ea5e9', Ancient: '#a16207', Royal: '#1e3a8a', Athletic: '#ea580c',
   };
 
   // w = spawn weight, base = base catch rate, flee = flee chance after a failed catch
@@ -27,7 +38,8 @@ window.RG = (() => {
   const ZONES = {
     park: 'Central Park', museum: 'The Met', school: 'Regis High School',
     church: 'St. Ignatius Loyola', subway: '86th St Station', street: 'Upper East Side',
-    water: 'The Reservoir & Turtle Pond', any: 'Everywhere',
+    water: 'The Reservoir & Turtle Pond', river: 'The East River', sports: 'Asphalt Green & the Ballfields',
+    any: 'Everywhere',
   };
 
   const ZONE_HINTS = {
@@ -38,6 +50,8 @@ window.RG = (() => {
     museum: 'Ancient Regimon lurk in the galleries 🏺',
     subway: 'Steel and Dark Regimon ride the rails 🚇',
     street: 'City Regimon roam the avenues 🚕',
+    river: 'River Regimon ride the East River currents 🌊',
+    sports: 'Athletic Regimon train here 🏅',
   };
 
   const STOPS = [
@@ -55,6 +69,40 @@ window.RG = (() => {
     { id: 'subway', name: '86th St Subway', x: 2185, y: 1615, icon: '🚇', blurb: '4, 5, 6 trains. Subwayrm is always one stop behind you.' },
     { id: 'deli', name: 'Corner Deli', x: 2215, y: 1000, icon: '🥯', blurb: 'Bacon, egg & cheese on an everything bagel.' },
     { id: 'madison', name: 'Madison Ave Café', x: 1075, y: 560, icon: '☕', blurb: 'Where upperclassmen pretend to like black coffee.' },
+    { id: 'loyola', name: 'Loyola School', x: 1890, y: 160, icon: '🏫', blurb: 'Regis’s Jesuit neighbor on Park Avenue.' },
+    { id: 'neue', name: 'Neue Galerie', x: 700, y: 1745, icon: '🖼️', blurb: 'Home of Klimt’s “Woman in Gold,” right on Fifth Avenue.' },
+    { id: 'gugg', name: 'The Guggenheim', x: 1075, y: 2700, icon: '🌀', blurb: 'Frank Lloyd Wright’s spiral. Spiralynx has been walking the ramp for years.' },
+    { id: 'engineers', name: 'Engineers’ Gate', x: 575, y: 3070, icon: '🏃', blurb: 'Where Reservoir runners start their loop at 90th and Fifth.' },
+    { id: 'ballfields', name: 'Central Park Ballfields', x: 300, y: 2700, icon: '⚾', blurb: 'Pickup games every afternoon. Sprintah never gets tagged out.' },
+    { id: 'shops86', name: '86th Street Shops', x: 2380, y: 1722, icon: '🛍️', blurb: 'The busiest shopping strip on the Upper East Side.' },
+    { id: 'qtrain', name: '86th St Q Train', x: 3185, y: 1728, icon: '🚇', blurb: 'The Second Avenue Subway opened here in 2017.' },
+    { id: 'bakery', name: 'Yorkville Bakery', x: 3400, y: 2215, icon: '🥨', blurb: 'Yorkville was once the heart of German New York. Pretzels still rule.' },
+    { id: 'diner', name: 'First Avenue Diner', x: 3690, y: 1000, icon: '🍳', blurb: 'Pancakes after a Saturday tournament. Tradition.' },
+    { id: 'dogrun', name: 'Carl Schurz Dog Run', x: 4600, y: 1150, icon: '🐕', blurb: 'Every dog on the East Side meets here at 8 a.m.' },
+    { id: 'promenade', name: 'Carl Schurz Promenade', x: 4765, y: 1700, icon: '🌊', blurb: 'Watch the tugboats push up the East River.' },
+    { id: 'hellgate', name: 'Hell Gate Overlook', x: 4765, y: 3150, icon: '⚓', blurb: 'The churning tidal strait where the Gatekeel lives.' },
+  ];
+
+  // Battle arenas. Each leader's team is species ids; their level scales with your team.
+  const ARENAS = [
+    { id: 'lawn', name: 'Great Lawn Arena', x: 120, y: 330, tier: 1, leader: 'Ranger Rosa', title: 'Park Ranger', team: [9, 34, 35], color: '#16a34a',
+      quote: 'The Great Lawn is my turf. Literally.' },
+    { id: 'regisgym', name: 'Regis Gym Arena', x: 1405, y: 1250, tier: 2, leader: 'Coach Malone', title: 'Varsity Coach', team: [47, 48, 49], color: '#1f3a93',
+      quote: 'Hustle! Show me what you’ve got, first-year.' },
+    { id: 'qarena', name: 'Second Ave Station Arena', x: 3310, y: 1770, tier: 3, leader: 'Conductor Kay', title: 'Train Conductor', team: [40, 17, 39], color: '#64748b',
+      quote: 'Stand clear of the closing doors, please!' },
+    { id: 'guggarena', name: 'Guggenheim Arena', x: 880, y: 2920, tier: 4, leader: 'Curator Vance', title: 'Museum Curator', team: [43, 58, 59], color: '#a16207',
+      quote: 'Every battle is a work of art. Shall we?' },
+    { id: 'asphalt', name: 'Asphalt Green Arena', x: 4270, y: 2900, tier: 5, leader: 'Captain Ruiz', title: 'Swim Team Captain', team: [50, 51, 52], color: '#ea580c',
+      quote: 'Last one to the wall buys the bagels.' },
+    { id: 'gracie', name: 'Gracie Mansion Arena', x: 4640, y: 2880, tier: 6, leader: 'The Mayor', title: 'Mayor of New York', team: [32, 22, 57], color: '#d4a017',
+      quote: 'This city has seen a lot of trainers. Let’s see if you’re any different.' },
+  ];
+
+  const TRAINER_NAMES = [
+    'Freshman Theo', 'Sophomore Aiden', 'Junior Mateo', 'Senior Liam', 'Freshman Declan', 'Sophomore Jonah',
+    'Junior Kofi', 'Senior Brendan', 'Xavier Rival', 'Fordham Prep Rival', 'Debate Captain', 'Chess Club Champ',
+    'Robotics Kid', 'Band Kid', 'Track Star', 'Yearbook Editor',
   ];
 
   // body: round | tall | wide | worm | ghost
@@ -167,7 +215,47 @@ window.RG = (() => {
       desc: 'Runs chemistry labs out of a hollowed-out beaker. Safety goggles on at all times.' },
     { id: 46, name: 'Theologecko', types: ['Spirit', 'Brainy'], rarity: 2, habitat: ['school', 'church'], body: 'tall', color: '#58b09c', belly: '#d1f2e8', extras: ['tail'], acc: '🕊️', accPos: 'hand',
       desc: 'Can recite the Nicene Creed backwards. Sticks to the ceiling during Theology class.' },
+
+    // ---- Asphalt Green & the ballfields (athletic) ----
+    { id: 47, name: 'Dribbluff', types: ['Athletic'], rarity: 1, habitat: ['sports', 'school'], body: 'round', color: '#f28c28', belly: '#ffd9b0', acc: '🏀', accPos: 'hand',
+      desc: 'Bounces down the court all day long. Nobody has ever made it stop dribbling.' },
+    { id: 48, name: 'Goaliebear', types: ['Athletic'], rarity: 2, habitat: ['sports'], body: 'round', color: '#6b4f3a', belly: '#d9c2a5', ears: 'round', acc: '🧤', accPos: 'hand',
+      desc: 'Blocks every shot on the field. Has not let in a goal since 2019.' },
+    { id: 49, name: 'Sprintah', types: ['Athletic', 'Electric'], rarity: 3, habitat: ['sports', 'park'], body: 'tall', color: '#e9b949', belly: '#fff1c9', ears: 'cat', extras: ['stripes', 'tail', 'headband'], acc: '👟', accPos: 'hand',
+      desc: 'Runs the 100 in 9.5 seconds. Its sneakers are always untied.' },
+    { id: 50, name: 'Poolphin', types: ['Water', 'Athletic'], rarity: 2, habitat: ['sports', 'water'], body: 'wide', color: '#4f9fd8', belly: '#d6ecfa', extras: ['fin', 'tailfin'], acc: '🥽', accPos: 'hand',
+      desc: 'Swims laps in the Asphalt Green pool and anchors every relay.' },
+    { id: 51, name: 'Crewcoon', types: ['Athletic', 'Normal'], rarity: 2, habitat: ['river', 'sports'], body: 'round', color: '#7a7f8c', belly: '#d9dce3', ears: 'round', extras: ['glasses', 'tail'], acc: '🚣', accPos: 'hand',
+      desc: 'Rows up the East River at dawn with the crew team, then steals your granola bar.' },
+    { id: 52, name: 'Victorhino', types: ['Athletic', 'Steel'], rarity: 4, habitat: ['sports'], body: 'wide', color: '#8f96a3', belly: '#dde1e8', ears: 'round', extras: ['horn'], acc: '🏆', accPos: 'hand',
+      desc: 'Has won every championship trophy on the East Side and carries them all on its horn.' },
+
+    // ---- the East River ----
+    { id: 53, name: 'Tugotter', types: ['Water', 'Steel'], rarity: 2, habitat: ['river'], body: 'round', color: '#7b5a3c', belly: '#e2c9a6', ears: 'round', extras: ['tail', 'cap'], acc: '⚓', accPos: 'hand',
+      desc: 'Pushes barges up the East River all day and floats on its back all night.' },
+    { id: 54, name: 'Gatekeel', types: ['Water', 'Dark'], rarity: 3, habitat: ['river'], body: 'worm', color: '#2f4858', belly: '#8fb3c4', extras: ['fin'], acc: '🌊', accPos: 'head',
+      desc: 'Lurks in the whirlpools of Hell Gate. Sailors have feared it for three hundred years.' },
+    { id: 55, name: 'Seagullible', types: ['Flying', 'Water'], rarity: 1, habitat: ['river', 'park', 'street'], body: 'round', color: '#eef1f4', belly: '#ffffff', extras: ['wings', 'beak'], acc: '🍟', accPos: 'hand',
+      desc: 'Will believe anything you tell it, as long as you are holding fries.' },
+    { id: 56, name: 'Ferryt', types: ['Water', 'Normal'], rarity: 2, habitat: ['river'], body: 'tall', color: '#c9a27c', belly: '#f3e3cf', ears: 'round', extras: ['tail', 'cap'], acc: '⛴️', accPos: 'hand',
+      desc: 'Captains the ferry to East 90th Street. Collects no fares, only snacks.' },
+    { id: 57, name: 'Mayorca', types: ['Water', 'Royal'], rarity: 5, habitat: ['river'], body: 'wide', color: '#23233a', belly: '#f4f4f4', extras: ['fin', 'tailfin'], acc: '🎩', accPos: 'head',
+      desc: 'LEGENDARY. Surfaces near Gracie Mansion once a term. Some say it has been mayor longer than anyone.' },
+
+    // ---- the Guggenheim ----
+    { id: 58, name: 'Spiralynx', types: ['Brainy', 'Ancient'], rarity: 3, habitat: ['museum'], body: 'round', color: '#e9e4d6', belly: '#ffffff', ears: 'tufts', extras: ['spiral'], acc: '🌀', accPos: 'hand',
+      desc: 'Walks up the Guggenheim ramp forever. Has never reached the top, or the bottom.' },
+    { id: 59, name: 'Abstractopus', types: ['Brainy', 'Dark'], rarity: 3, habitat: ['museum'], body: 'round', color: '#7c3aed', belly: '#e9d5ff', extras: ['tentacles'], acc: '🖼️', accPos: 'hand',
+      desc: 'Paints eight abstract masterpieces at once. Critics are baffled.' },
+
+    // ---- Yorkville streets ----
+    { id: 60, name: 'Pretzeleon', types: ['Normal', 'Grass'], rarity: 2, habitat: ['street'], body: 'tall', color: '#6cbf6a', belly: '#dff5d8', extras: ['tail'], acc: '🥨', accPos: 'hand',
+      desc: 'Blends into any Yorkville bakery window. Smells faintly of mustard.' },
+    { id: 61, name: 'Hydrantula', types: ['Water', 'Bug'], rarity: 2, habitat: ['street'], body: 'round', color: '#d7263d', belly: '#ffc2c9', extras: ['tentacles'], acc: '🚒', accPos: 'hand',
+      desc: 'Opens fire hydrants on hot summer days. The whole block loves it.' },
+    { id: 62, name: 'Bodegato', types: ['Normal', 'Dark'], rarity: 1, habitat: ['street', 'subway'], body: 'round', color: '#e0a458', belly: '#fbe7c6', ears: 'cat', extras: ['tail'], acc: '🥫', accPos: 'hand',
+      desc: 'Naps on the bread shelf of every corner bodega. The real owner of the store.' },
   ];
 
-  return { W, H, TYPES, RARITY, BALLS, ZONES, ZONE_HINTS, STOPS, SPECIES };
+  return { W, H, AVES, STREETS, STREET_END, RIVER_X, TYPES, RARITY, BALLS, ZONES, ZONE_HINTS, STOPS, ARENAS, TRAINER_NAMES, SPECIES };
 })();
