@@ -96,6 +96,15 @@
   // Candy cost to evolve: a family's first evolution costs 25, the second costs 100. The original Regimon need 50 to evolve.
   const evolveCost = sp => (sp.id <= 103 ? 50 : sp.stage === 1 ? 25 : 100);
   const familyOf = sp => sp.family || sp.id;
+  // The Mythic quest boss (#313). It never spawns in the wild: finish every quest to face it.
+  RG.ZONES.quest = 'Quest reward — finish all quests';
+  RG.SPECIES.push({
+    id: 313, name: 'Umbravolt', types: ['Electric', 'Dark'], rarity: 6, habitat: ['quest'], body: 'tall', color: '#171233', belly: '#3b2f7a',
+    eyes: 'fierce', glow: '#facc15', ears: 'tufts', boss: true,
+    extras: ['bladewings', 'horns', 'tail', 'bolts', 'fangs', 'claws', 'crest', 'neon', 'aura', 'gradient'], acc: '',
+    sig: ['Blackout Surge', 'Electric', 165, 80, 'stun'],
+    desc: 'MYTHIC. A storm dragon that swallowed every light in the city during the Great Blackout. Only trainers who finish every quest ever see it.',
+  });
   RG.EVOLVES = EVOLVES;
   RG.evolveCost = evolveCost;
   RG.familyOf = familyOf;

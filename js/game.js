@@ -17,7 +17,10 @@
 
   const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const START = GEO.toXY(40.7789, -73.9596);   // the front steps of Regis on 84th Street
+  const hashStr = s => { let h = 7; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) | 0; return Math.abs(h); };
   const STOPS = GEO.LANDMARKS.map(l => ({ id: slug(l.name), name: l.name, icon: l.icon, blurb: l.blurb, transit: l.zone === 'subway' ? (l.icon === '⛴️' ? 'ferry' : 'subway') : null, ...GEO.toXY(l.lat, l.lon) }));
+  // About one in six stops is an arcade with a minigame.
+  for (const st of STOPS) if (!st.transit && hashStr(st.id) % 6 === 0) st.arcade = RGMini.KINDS[hashStr(st.id + '!') % RGMini.KINDS.length];
   for (const a of ARENAS) Object.assign(a, GEO.toXY(a.lat, a.lon));
 
   // ---------------- save ----------------
@@ -27,7 +30,7 @@
       version: SAVE_VERSION, xp: 0, level: 1, items: { regi: 30, honors: 5, magna: 1, bagel: 5 },
       dex: {}, caught: [], cooldowns: {}, badges: {}, px: START.x, py: START.y, intro: false, nextUid: 1,
       rating: 1000, leagueW: 0, leagueL: 0, leagueBest: 1000, mode: 'explore', walked: 0, shinies: 0,
-      name: '', pid: Math.random().toString(36).slice(2, 12), online: false, music: 'auto', experimental: false, candy: {},
+      name: '', pid: Math.random().toString(36).slice(2, 12), online: false, music: 'auto', experimental: false, candy: {}, rareCandy: 0, mgCd: {}, quest: { round: 1, prog: {}, boss: false, beaten: false, shiny: null },
     };
   }
   function load() {
@@ -36,6 +39,8 @@
       if (raw) {
         const s = Object.assign(freshState(), JSON.parse(raw));
         s.items = Object.assign(freshState().items, s.items);
+        if (!s.quest || !s.quest.prog) s.quest = freshState().quest;
+        s.mgCd = s.mgCd || {}; s.rareCandy = s.rareCandy || 0;
         // Version 1 saves used the old 83rd–96th St map: keep everything but the position.
         if (!s.pid) s.pid = Math.random().toString(36).slice(2, 12);
         if (!s.candy || !Object.keys(s.candy).length) { s.candy = {}; for (const c of s.caught || []) { const sp = SPECIES.find(x => x.id === c.sid); if (sp) { const f = RG.familyOf(sp); s.candy[f] = (s.candy[f] || 0) + 10; } } }
@@ -675,16 +680,19 @@
 
   // The map is drawn lazily in tiles, with a small LRU cache so phones never hold too many canvases.
   const TILE = 768, MAX_TILES = 48, tiles = new Map();
-  function getTile(tx, ty) {
-    const key = tx + ',' + ty;
+  // Tiles are drawn at half, normal or double resolution depending on how far you're zoomed in, so zooming in stays sharp.
+  const tileRes = () => (zoom * dpr > 1.6 ? 2 : zoom * dpr < 0.7 ? 0.5 : 1);
+  function getTile(tx, ty, res = 1) {
+    const key = tx + ',' + ty + ',' + res;
     let cv = tiles.get(key);
     if (cv) { tiles.delete(key); tiles.set(key, cv); return cv; }
-    cv = document.createElement('canvas'); cv.width = TILE; cv.height = TILE;
+    cv = document.createElement('canvas'); cv.width = TILE * res; cv.height = TILE * res;
     const g = cv.getContext('2d');
+    g.scale(res, res);
     g.translate(-tx * TILE, -ty * TILE);
     drawWorld(g, [tx * TILE, ty * TILE, (tx + 1) * TILE, (ty + 1) * TILE], false);
     tiles.set(key, cv);
-    if (tiles.size > MAX_TILES) tiles.delete(tiles.keys().next().value);
+    while (tiles.size > Math.min(160, Math.floor(MAX_TILES / (res * res)))) tiles.delete(tiles.keys().next().value);
     return cv;
   }
   const OV = 0.02;
@@ -710,7 +718,7 @@
     setZoom(userZoom);
     if (C) { C.L = catchLayout(); C.bg = buildCatchBG(C.spawn.zone, C.L); }
   }
-  function setZoom(z) { userZoom = clamp(z, 0.45 / baseZoom, 1.6); zoom = baseZoom * userZoom; }
+  function setZoom(z) { userZoom = clamp(z, 0.3 / baseZoom, 3.2); zoom = baseZoom * userZoom; const lbl = document.querySelector('#zoom-lvl'); if (lbl) lbl.textContent = Math.round(userZoom * 100) + '%'; }
   addEventListener('resize', resize);
 
   // ---------------- game state ----------------
@@ -824,7 +832,7 @@
       }
     }
     for (const st of STOPS) {
-      if (st.transit ? Math.abs(w.x - st.x) < 90 && w.y > st.y - 95 && w.y < st.y + 20 : hyp(w.x, w.y, st.x, st.y - 44 - (st.open || 0) * 14) < 36) { tapStop(st); return; }
+      if (st.arcade ? Math.abs(w.x - st.x) < 40 && w.y > st.y - 80 && w.y < st.y + 12 : st.transit ? Math.abs(w.x - st.x) < 90 && w.y > st.y - 95 && w.y < st.y + 20 : hyp(w.x, w.y, st.x, st.y - 44 - (st.open || 0) * 14) < 36) { tapStop(st); return; }
     }
     if (S.mode === 'live') {
       if (!GPS.fix) toast('🛰️ Waiting for your GPS location…');
@@ -864,6 +872,8 @@
   addEventListener('keydown', e => {
     if (e.target && e.target.closest && e.target.closest('input, textarea, select')) return;
     keys[e.key.toLowerCase()] = true;
+    if (mode === 'map' && !modalOpen && (e.key === '+' || e.key === '=')) setZoom(userZoom * 1.3);
+    if (mode === 'map' && !modalOpen && (e.key === '-' || e.key === '_')) setZoom(userZoom / 1.3);
     if (e.key === 'Escape') { if (modalOpen) closeModal(); else if (C && C.state === 'idle') closeCatch(false); }
   });
   addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
@@ -923,7 +933,7 @@
     setTimeout(() => {
       P.x = to.x; P.y = to.y + 40; target = null; P.travel = false; holding = false;
       spawns = []; npcs = []; seedSpawns();
-      S.px = P.x; S.py = P.y; addXP(20); save();
+      S.px = P.x; S.py = P.y; addXP(20); qAdd('ride'); save();
     }, 1300);
     setTimeout(() => { ov.classList.add('out'); Music.sfx('levelup'); }, 2300);
     setTimeout(() => { ov.remove(); toast(`${T.ico} Arrived at <b>${esc(to.name)}</b>`, 2500); }, 2800);
@@ -931,8 +941,10 @@
 
   function tapStop(st) {
     const d = hyp(P.x, P.y, st.x, st.y);
+    if (st.arcade) { tapArcade(st); return; }
     if (d > RANGE) { toast(`${st.icon} <b>${st.name}</b><br>Walk closer to ${st.transit ? 'enter the station' : 'spin it'}.`); return; }
     if (st.transit) { stationMenu(st); return; }
+    if (st.arcade) { tapArcade(st); return; }
     spinStop(st);
   }
   function spinStop(st) {
@@ -953,6 +965,7 @@
     }
     S.cooldowns[st.id] = Date.now() + STOP_COOLDOWN;
     Music.sfx('spin');
+    qAdd('spin');
     addXP(50);
     toast(`${st.icon} <b>${st.name}</b><br>${st.blurb}`, 3400);
     save();
@@ -986,7 +999,7 @@
       P.x = clamp(P.x + (mx / m) * step, 20, W - 20);
       P.y = clamp(P.y + (my / m) * step, 20, H - 20);
       if (S.mode !== 'live' && !isSafe(P.x, P.y)) { P.x = ox; P.y = oy; target = null; P.travel = false; holding = false; safeBlocked(); }
-      if (!P.travel) S.walked += hyp(ox, oy, P.x, P.y) * METERS_PER_PX;
+      if (!P.travel) { const m = hyp(ox, oy, P.x, P.y) * METERS_PER_PX; S.walked += m; qAdd('walk', m); }
       P.dir = Math.atan2(my, mx); P.moving = true; P.walkT += dt * (P.travel ? 1.8 : 1);
       if (Math.abs(mx / m) > 0.2) P.face = mx > 0 ? 1 : -1;
       P.puffT -= dt;
@@ -1024,6 +1037,76 @@
   }
 
   // Stops look like Pokémon GO stops: a spinning cube on a pole far away, a photo disc that opens up when you're close.
+  // Arcades: a glowing cabinet on a purple pad. Grey while it's recharging.
+  const MG_COOLDOWN = 30 * 60 * 1000;
+  const ARCADE_COLORS = { whack: '#f97316', memory: '#22c55e', toss: '#38bdf8' };
+  function drawArcade(st, t) {
+    const x = st.x, y = st.y, cd = (S.mgCd[st.id] || 0) > Date.now(), inR = hyp(P.x, P.y, x, y) <= RANGE;
+    const col = cd ? '#9ca3af' : ARCADE_COLORS[st.arcade], G2 = RGMini.GAMES[st.arcade];
+    ctx.save(); ctx.translate(x, y); ctx.scale(1.4, 1.4); ctx.translate(-x, -y);
+    ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.beginPath(); ctx.ellipse(x, y + 2, 22, 8, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = cd ? '#6b7280' : '#7c3aed'; ctx.beginPath(); ctx.ellipse(x, y, 20, 7, 0, 0, 7); ctx.fill();
+    if (!cd) {
+      const p = (t / 1200) % 1;
+      ctx.strokeStyle = 'rgba(192,132,252,' + (0.8 * (1 - p)) + ')'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.ellipse(x, y, 20 + p * 16, 7 + p * 6, 0, 0, 7); ctx.stroke();
+    }
+    const bob = Math.sin(t / 500 + x) * 2, top = y - 44 + bob;
+    // cabinet
+    ctx.fillStyle = cd ? '#4b5563' : '#312e81'; rr(ctx, x - 13, top, 26, 40, 5); ctx.fill();
+    ctx.fillStyle = cd ? '#374151' : '#1e1b4b'; ctx.fillRect(x - 13, top + 26, 26, 4);
+    ctx.shadowColor = col; ctx.shadowBlur = cd ? 0 : 12;
+    ctx.fillStyle = col; rr(ctx, x - 10, top + 5, 20, 16, 3); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#ef4444'; ctx.beginPath(); ctx.arc(x - 5, top + 33, 2.6, 0, 7); ctx.fill();
+    ctx.fillStyle = '#facc15'; ctx.beginPath(); ctx.arc(x + 5, top + 33, 2.6, 0, 7); ctx.fill();
+    ctx.font = '11px "Segoe UI Emoji", "Apple Color Emoji", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(cd ? '💤' : G2.icon, x, top + 13.5);
+    ctx.fillStyle = cd ? '#6b7280' : '#facc15'; rr(ctx, x - 15, top - 7, 30, 8, 3); ctx.fill();
+    ctx.font = '900 6px "Trebuchet MS", sans-serif'; ctx.fillStyle = '#1e1b4b'; ctx.fillText('ARCADE', x, top - 2.6);
+    ctx.restore();
+    if (inR) {
+      ctx.font = '800 12px "Trebuchet MS", sans-serif'; ctx.textAlign = 'center';
+      const left = (S.mgCd[st.id] || 0) - Date.now();
+      const tip = cd ? `🕹️ Back in ${Math.ceil(left / 60000)} min` : `🕹️ ${G2.name} — tap to play`;
+      ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(255,255,255,.95)'; ctx.strokeText(tip, x, y + 22);
+      ctx.fillStyle = '#4c1d95'; ctx.fillText(tip, x, y + 22);
+    }
+  }
+  function tapArcade(st) {
+    const G2 = RGMini.GAMES[st.arcade], left = (S.mgCd[st.id] || 0) - Date.now();
+    if (hyp(P.x, P.y, st.x, st.y) > RANGE) { toast(`🕹️ <b>${G2.name}</b> arcade<br>Walk closer to play.`); return; }
+    if (left > 0) { toast(`🕹️ This arcade is recharging. Come back in <b>${Math.ceil(left / 60000)} min</b>.`); return; }
+    openModal(`<div class="result"><div class="bigemoji">${G2.icon}</div><h2>${G2.name}</h2>
+      <p class="sub">🕹️ Arcade at ${esc(st.name)}</p><p>${G2.how}</p>
+      <p class="sub">Earn 🍭 <b>Rare Candy</b> — it turns into candy for any Regimon so you can evolve it. You can play each arcade once every 30 minutes.</p>
+      <button class="primary" id="mg-go">▶ Play!</button></div>`);
+    $('#mg-go').onclick = () => {
+      closeModal();
+      mode = 'mini'; target = null; holding = false;
+      Music.play('city');
+      const pool = SPECIES.filter(s => s.rarity <= 5 && !s.boss);
+      RGMini.play(st.arcade, {
+        art: (sp, shiny) => Art.url(sp, shiny),
+        randomSpecies: () => pool[Math.floor(Math.random() * pool.length)],
+        sfx: n => Music.sfx(n),
+        done: score => {
+          mode = 'map'; Music.play(areaTrack(zone));
+          if (score == null) { toast('🕹️ Come back and finish a game to earn Rare Candy!'); return; }
+          const per = { whack: 2.5, memory: 2, toss: 1.8 }[st.arcade];
+          const candy = clamp(Math.round(score / per), 1, 15), xp = 100 + score * 10;
+          S.rareCandy += candy; S.mgCd[st.id] = Date.now() + MG_COOLDOWN; addXP(xp); qAdd('game'); save();
+          Music.sfx(candy >= 8 ? 'victory' : 'catch');
+          openModal(`<div class="result"><div class="bigemoji">🍭</div><h2>${score >= 20 ? 'Amazing!' : score >= 10 ? 'Nice game!' : 'Good try!'}</h2>
+            <p class="sub">Score: <b>${score}</b></p><div class="xpgain">+${candy} 🍭 Rare Candy · +${xp} XP</div>
+            <p class="sub">You have ${S.rareCandy} Rare Candy. Use it on any Regimon in 🗃️ Caught.</p>
+            <button class="primary" id="mg-ok">OK</button></div>`);
+          $('#mg-ok').onclick = () => closeModal();
+        },
+      });
+    };
+  }
+
   // Subway entrances look like NYC stairways: railings, green globe lamps and a station sign that's always visible.
   // Ferry landings get a blue dock sign.
   function drawStation(st, t) {
@@ -1076,6 +1159,7 @@
   }
   function drawStop(st, t) {
     if (st.transit) { drawStation(st, t); return; }
+    if (st.arcade) { drawArcade(st, t); return; }
     const cd = (S.cooldowns[st.id] || 0) > Date.now();
     const inR = hyp(P.x, P.y, st.x, st.y) <= RANGE;
     st.open = clamp((st.open || 0) + (inR ? 0.08 : -0.08), 0, 1);
@@ -1475,7 +1559,7 @@
     get S() { return S; }, byId, Art, Music, TYPES,
     openModal: (h, cb) => openModal(h, cb), closeModal: () => closeModal(), toast: (m, ms) => toast(m, ms),
     onOpen: () => { mode = 'battle'; target = null; holding = false; },
-    onClose: () => { mode = 'map'; Music.play(areaTrack(zone)); updateHUD(); renderNearby(); save(); },
+    onClose: win => { mode = 'map'; Music.play(areaTrack(zone)); if (win) qAdd('win'); updateHUD(); renderNearby(); save(); if (pendingBoss) { pendingBoss = false; setTimeout(openBossCatch, 300); } },
   });
 
   function drawPuffs() {
@@ -1498,9 +1582,10 @@
     ensureChunks(P.x - hw - 1500, P.y - hh - 1500, P.x + hw + 1500, P.y + hh + 1500);
     // Build at most two new tiles per frame; show the low-res overview underneath until they're ready.
     let budget = 2;
+    const res = tileRes();
     for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
-      const key = tx + ',' + ty;
-      if (tiles.has(key) || budget-- > 0) ctx.drawImage(getTile(tx, ty), tx * TILE, ty * TILE);
+      const key = tx + ',' + ty + ',' + res;
+      if (tiles.has(key) || budget-- > 0) ctx.drawImage(getTile(tx, ty, res), tx * TILE, ty * TILE, TILE, TILE);
       else ctx.drawImage(getOverview(), tx * TILE * OV, ty * TILE * OV, TILE * OV, TILE * OV, tx * TILE, ty * TILE, TILE, TILE);
     }
 
@@ -1738,7 +1823,7 @@
   }
 
   function catchChance(sp, ballType, bagel, throwMult) {
-    const m = BALLS[ballType].mult * (bagel ? 1.5 : 1) * throwMult;
+    const m = BALLS[ballType].mult * (bagel ? 1.5 : 1) * throwMult * (C && C.spawn && C.spawn.boss ? 8 : 1);
     return 1 - Math.pow(1 - RARITY[sp.rarity].base, m);
   }
   const ringColor = ch => (ch > 0.5 ? '#3ddc68' : ch > 0.3 ? '#f7d046' : ch > 0.15 ? '#f4933c' : '#ef4444');
@@ -1891,7 +1976,7 @@
     C.success = Math.random() < chance;
     C.wobbles = C.success ? 3 : Math.floor(Math.random() * 3);
     C.wobblesDone = 0;
-    C.flee = !C.success && Math.random() < RARITY[C.sp.rarity].flee;
+    C.flee = !C.success && !C.spawn.boss && Math.random() < RARITY[C.sp.rarity].flee;
     b.ax = p.x; b.ay = p.y - L.R * 0.2;
     if (bonus) catchMsg(bonus);
     Music.sfx('pop');
@@ -1904,6 +1989,8 @@
     const shiny = !!C.spawn.shiny;
     if (shiny) { d.shiny = (d.shiny || 0) + 1; S.shinies++; }
     S.caught.push({ uid: S.nextUid++, sid: sp.id, cp: C.cp, t: Date.now(), ball: C.ball.type, shiny });
+    if (C.spawn.boss) { S.quest = { round: S.quest.round + 1, prog: {}, boss: false, beaten: false, shiny: null }; setTimeout(() => toast('📜 New quests are ready — a harder round!', 3500), 2500); }
+    else { qAdd('catch'); if (C.bonus === 'Great!' || C.bonus === 'Excellent!') qAdd('throw'); }
     const candy = 3 + Math.min(4, sp.rarity - 1) * 2;
     addCandy(sp, candy);
     const xp = 100 + 60 * (sp.rarity - 1) + (sp.rarity >= 6 ? 1500 : 0) + (shiny ? 500 : 0) + (isNew ? 500 : 0) + ({ 'Nice!': 10, 'Great!': 50, 'Excellent!': 100 }[C.bonus] || 0);
@@ -2192,6 +2279,106 @@
     });
   }
 
+  // ---------------- quests ----------------
+  const QUESTS = [
+    { k: 'catch', n: 15, ico: '🎯', text: n => `Catch ${n} Regimon` },
+    { k: 'spin', n: 8, ico: '🔷', text: n => `Spin ${n} stops` },
+    { k: 'win', n: 3, ico: '⚔️', text: n => `Win ${n} battles` },
+    { k: 'game', n: 3, ico: '🕹️', text: n => `Play ${n} arcade minigames` },
+    { k: 'evolve', n: 2, ico: '⬆️', text: n => `Evolve ${n} Regimon` },
+    { k: 'ride', n: 2, ico: '🚇', text: n => `Ride the subway or ferry ${n} times` },
+    { k: 'walk', n: 2000, ico: '👟', text: n => `Walk ${(n / 1000).toFixed(1)} km` },
+    { k: 'throw', n: 3, ico: '✨', text: n => `Make ${n} Great or Excellent throws` },
+  ];
+  const BOSS_ID = 313;
+  const qNeed = q => Math.round(q.n * (1 + 0.5 * (S.quest.round - 1)));
+  const qDone = q => (S.quest.prog[q.k] || 0) >= qNeed(q);
+  function qAdd(k, amt = 1) {
+    if (S.quest.boss) return;
+    const q = QUESTS.find(x => x.k === k);
+    if (!q || qDone(q)) return;
+    S.quest.prog[k] = Math.min(qNeed(q), (S.quest.prog[k] || 0) + amt);
+    if (qDone(q)) {
+      Music.sfx('buff');
+      toast(`📜 Quest complete: <b>${q.text(qNeed(q))}</b>`, 3000);
+      if (QUESTS.every(qDone)) {
+        S.quest.boss = true;
+        setTimeout(() => { Music.sfx('rankup'); banner('MYTHIC BOSS!', 'Umbravolt has appeared — open 📜 Quests'); }, 1200);
+      }
+      save();
+    }
+    paintQuest();
+  }
+  function paintQuest() {
+    const chip = $('#quest-chip'); if (!chip) return;
+    const done = QUESTS.filter(qDone).length;
+    chip.textContent = S.quest.boss ? (S.quest.beaten ? '⚡ Catch the boss!' : '⚡ Boss ready!') : `📜 Quests ${done}/${QUESTS.length}`;
+    chip.classList.toggle('boss', S.quest.boss);
+  }
+  function showQuests() {
+    if (mode !== 'map') return;
+    const boss = byId[BOSS_ID];
+    openModal(`<h2>📜 Quests <span class="sub">· round ${S.quest.round}</span></h2>
+      <p class="sub">Finish every quest to face the Mythic boss <b>${dexEntry(BOSS_ID).seen ? boss.name : '???'}</b> — and catch it. 1 in 10 are ✨ shiny!</p>
+      <div class="quests">${QUESTS.map(q => { const need = qNeed(q), have = Math.min(need, Math.floor(S.quest.prog[q.k] || 0));
+        return `<div class="quest ${have >= need ? 'done' : ''}"><span class="q-ico">${have >= need ? '✅' : q.ico}</span><div class="grow"><b>${q.text(need)}</b>
+          <div class="progress"><div style="width:${have / need * 100}%"></div></div></div><span class="q-num">${q.k === 'walk' ? (have / 1000).toFixed(1) + '/' + (need / 1000).toFixed(1) : have + '/' + need}</span></div>`; }).join('')}</div>
+      <div class="boss-card ${S.quest.boss ? 'ready' : ''}">
+        <img src="${Art.url(boss)}" class="${S.quest.boss ? '' : 'sil'}" alt="">
+        <div><b>${S.quest.boss ? 'Umbravolt' : 'Mythic boss'}</b><small>Electric · Dark · Mythic</small>
+        ${S.quest.boss ? `<button class="primary" id="boss-go">${S.quest.beaten ? '🎯 Catch Umbravolt' : '⚡ Battle Umbravolt'}</button>` : '<small>Complete all quests to unlock.</small>'}</div>
+      </div>`);
+    const go = $('#boss-go');
+    if (go) go.onclick = () => { closeModal(); if (S.quest.beaten) openBossCatch(); else bossBattle(); };
+  }
+  let pendingBoss = false;
+  function bossBattle() {
+    dexEntry(BOSS_ID).seen++;
+    Battle.challenge({
+      name: 'Umbravolt', title: 'Mythic quest boss · Electric / Dark', quote: 'The lights of the city flicker… then go out.', team: [102, 64, BOSS_ID],
+      color: '#4c1d95', icon: '⚡', tier: 8, music: 'boss', levelMult: 1.12, levelAdd: 6, smart: 0.95, skill: 0.95,
+      winQuote: 'The storm is too strong. Train your team and try again!',
+      onResult: win => {
+        if (!win) { save(); return ['Umbravolt is still waiting. Bring your strongest team!']; }
+        S.quest.beaten = true; S.items.magna += 10; pendingBoss = true; save();
+        return ['⚡ Umbravolt is weakened — catch it now!', '+10 Magna Cum Balls'];
+      },
+    });
+  }
+  function openBossCatch() {
+    if (!S.quest.beaten) return;
+    if (S.quest.shiny == null) { S.quest.shiny = Math.random() < 0.1; save(); }
+    const sp = byId[BOSS_ID];
+    openCatch({ sp, cp: Math.round(1600 + S.level * 45 + S.quest.round * 150), shiny: S.quest.shiny, zone: 'midtown', boss: true, x: P.x, y: P.y, born: 0, expires: Infinity, phase: 0 });
+    banner(S.quest.shiny ? '✨ SHINY UMBRAVOLT!' : 'UMBRAVOLT', 'Mythic boss · it won’t run away');
+  }
+
+  // ---------------- gift codes ----------------
+  const GIFTS = {
+    '93826a9e0f160cdc23c13f3eb7648b7188b9206d2d9d282bde66df8132f2f133': { sid: 313, cp: 2600, text: 'the Mythic Umbravolt' },
+  };
+  async function redeem(raw) {
+    const norm = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!norm) return;
+    if (!(window.crypto && crypto.subtle)) { toast('🎁 Codes work on the GitHub Pages site.'); return; }
+    const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('regimon-gift:' + norm)))].map(b => b.toString(16).padStart(2, '0')).join('');
+    const gift = GIFTS[hash];
+    S.redeemed = S.redeemed || [];
+    if (!gift) { toast('🎁 That code doesn’t work.'); return; }
+    if (S.redeemed.includes(hash)) { toast('🎁 You already redeemed this code.'); return; }
+    const sp = byId[gift.sid];
+    S.redeemed.push(hash);
+    S.caught.push({ uid: S.nextUid++, sid: sp.id, cp: gift.cp, t: Date.now(), ball: 'magna', shiny: false });
+    const d = dexEntry(sp.id); d.seen = Math.max(1, d.seen); d.caught++;
+    addCandy(sp, 25);
+    save();
+    Music.sfx('rankup');
+    openModal(`<div class="result"><span class="newbadge">GIFT!</span><img src="${Art.url(sp)}" alt="">
+      <h2>You received ${sp.name}!</h2><p class="sub">CP ${gift.cp} · ${RARITY[sp.rarity].name} · +25 🍬</p>
+      <button class="primary" id="gift-ok">Awesome!</button></div>`);
+    $('#gift-ok').onclick = () => closeModal();
+  }
+
   // ---------------- candy & evolution ----------------
   const candyOf = sp => S.candy[RG.familyOf(sp)] || 0;
   const candyName = sp => byId[RG.familyOf(sp)].name + ' Candy';
@@ -2212,7 +2399,8 @@
       <h2>${s.name}</h2>
       <div class="tags">${typeTags(s)}<span class="rar r${s.rarity}">${RARITY[s.rarity].name}</span></div>
       <div class="evo-line">${line.map(x => `<span class="${x.id === s.id ? 'on' : ''}"><img src="${Art.url(x, c.shiny)}" class="${dexEntry(x.id).caught || x.id === s.id ? '' : 'sil'}" alt=""><small>${dexEntry(x.id).caught ? x.name : '???'}</small></span>`).join('<b>➜</b>')}</div>
-      <p class="sub">🍬 <b>${have}</b> ${candyName(s)}</p>
+      <p class="sub">🍬 <b>${have}</b> ${candyName(s)}${S.rareCandy ? ` · 🍭 <b>${S.rareCandy}</b> Rare Candy` : ''}</p>
+      ${S.rareCandy ? `<div class="row rc-row"><button class="ghost" id="rc-1">🍭 Use 1</button><button class="ghost" id="rc-10">🍭 Use ${Math.min(10, S.rareCandy)}</button>${next && have < cost ? `<button class="ghost" id="rc-need">🍭 Use ${Math.min(S.rareCandy, cost - have)} to evolve</button>` : ''}</div>` : ''}
       ${next ? `<button class="primary evo-btn" id="mon-evolve" ${have >= cost ? '' : 'disabled'}>⬆️ Evolve · 🍬 ${cost}</button>`
         : `<p class="sub">${line.length > 1 ? '🌟 Fully evolved!' : 'This Regimon does not evolve.'}</p>`}
       ${movesHTML(s)}
@@ -2225,6 +2413,8 @@
       S.caught = S.caught.filter(m => m.uid !== uid); addCandy(s, 1); save();
       toast(`🎁 Sent ${s.name} to Professor Regis. +1 🍬`); back();
     };
+    const useRare = n => { n = Math.min(n, S.rareCandy); if (n <= 0) return; S.rareCandy -= n; addCandy(s, n); save(); Music.sfx('buff'); showMon(uid, back); };
+    for (const [id, n] of [['#rc-1', 1], ['#rc-10', 10], ['#rc-need', cost - have]]) { const el = $(id); if (el) el.onclick = () => useRare(n); }
     const btn = $('#mon-evolve');
     if (btn) btn.onclick = () => evolve(c, back);
   }
@@ -2239,7 +2429,7 @@
     d.caught++; d.seen = Math.max(d.seen, 1);
     if (c.shiny) d.shiny = (d.shiny || 0) + 1;
     const xp = 500 + (isNew ? 1000 : 0);
-    addXP(xp); save();
+    addXP(xp); qAdd('evolve'); save();
     openModal(`<div class="evolving">
       <p class="sub">What? <b>${s.name}</b> is evolving!</p>
       <div class="evo-stage"><div class="evo-rays"></div>
@@ -2294,6 +2484,8 @@
       <div class="name-row"><input id="name-input" maxlength="16" placeholder="Pick a trainer name" value="${esc(S.name)}" autocomplete="off"><button class="ghost" id="name-save">Save</button></div>
       <h2 style="font-size:18px">🔐 Account</h2>
       ${accountHTML()}
+      <h2 style="font-size:18px">🎁 Redeem a code</h2>
+      <div class="name-row"><input id="gift-input" maxlength="32" placeholder="Enter a gift code" autocomplete="off" autocapitalize="characters"><button class="ghost" id="gift-go">Redeem</button></div>
       <h2 style="font-size:18px">🌐 Online</h2>
       <div class="modes">
         <button class="mode ${S.online ? '' : 'on'}" id="online-off"><b>🔒 Solo</b><small>Play on your own.</small></button>
@@ -2330,6 +2522,7 @@
       </div>`);
     $('#name-save').onclick = () => { setName($('#name-input').value); showBag(); };
     bindAccount();
+    $('#gift-go').onclick = () => redeem($('#gift-input').value);
     $('#online-on').onclick = () => { setOnline(true); showBag(); };
     $('#online-off').onclick = () => { setOnline(false); showBag(); };
     $('#music-select').onchange = e => { S.music = e.target.value; save(); Music.play(S.music === 'auto' ? areaTrack(zone) : S.music); };
@@ -2374,6 +2567,9 @@
         <li>✅ <b>Safe & 🧪 Experimental</b> — you start in the best areas (Manhattan, the harbor, Hoboken, downtown Jersey City). Turn on Experimental mode in the 👑 menu to explore the whole map while it's still being finished.</li>
         <li>🚇 <b>Subway & ferry</b> — walk up to a station and tap it to ride to any other station on the map.</li>
         <li>💬 <b>Chat & emotes</b> — tap 💬 to send emotes over your trainer. When you're 🌐 Online you can chat, and tap other trainers to wave, ✨ teleport to them, or ⚔️ duel their real team.</li>
+        <li>🕹️ <b>Arcades</b> — play minigames at arcades around the map to win 🍭 Rare Candy (use it on any Regimon). Each arcade recharges for 30 minutes.</li>
+        <li>📜 <b>Quests</b> — finish all eight to battle and catch the Mythic boss. 1 in 10 are shiny!</li>
+        <li>🔍 <b>Zoom</b> — pinch, scroll or use ➕ ➖. The 🗺️ map zooms too.</li>
         <li>⬆️ <b>Evolving</b> — every catch gives 🍬 candy for that Regimon's family. Open 🗃️ Caught, tap a Regimon and press Evolve when you have enough candy. Transfer extras for +1 🍬.</li>
         <li>🌟 <b>Rarities</b> — Common, Uncommon, Rare, Legendary, <b>Mythic</b> and <b>Celestial</b>. The rarest appear under a beam of light. About 1 in 64 is a ✨ shiny.</li>
         <li>⚔️ <b>Battle</b> — hold to fast-attack and build ⚡ energy, fire special attacks, time the meter, and use your 2 🛡️ shields. Beat all 15 arena leaders, from the Great Lawn to Liberty Island.</li>
@@ -2481,51 +2677,121 @@
     ['Hoboken', 40.7440, -74.0324], ['Jersey City', 40.7178, -74.0431], ['Union City', 40.7730, -74.0320], ['Weehawken', 40.7690, -74.0200],
     ['Journal Square', 40.7327, -74.0630], ['Brooklyn', 40.6960, -73.9900], ['Queens', 40.7550, -73.9380], ['Governors Island', 40.6894, -74.0167],
   ].map(([n, lat, lon]) => [n, GEO.toXY(lat, lon)]);
+  // A sharper copy of the overview for zooming in on the big map.
+  const OV2 = 0.07;
+  let overview2 = null;
+  function getOverview2() {
+    if (!overview2) {
+      overview2 = document.createElement('canvas');
+      overview2.width = Math.ceil(W * OV2); overview2.height = Math.ceil(H * OV2);
+      const g2 = overview2.getContext('2d'); g2.scale(OV2, OV2); drawWorld(g2, [0, 0, W, H], true);
+    }
+    return overview2;
+  }
+  const ovView = { z: 1, x: 0, y: 0 };
   function showOverview() {
     if (mode !== 'map') return;
     const live = S.mode === 'live';
     openModal(`<h2>🗺️ Regimon GO map</h2>
-      <p class="sub">${live ? 'You’re in Live GPS mode — walk for real to move. ' : 'Tap anywhere to travel there. '}${S.experimental ? '🧪 Experimental: whole map open' : 'Shaded areas unlock in 🧪 Experimental mode'} · ⚔️ arenas · 🏆 badges won · 🔷 stops · 🟢 subway · 🟧 ferry · 🟡 you · Map data © OpenStreetMap contributors</p>
-      <div class="ov-wrap"><canvas id="ov-canvas"></canvas></div>`);
+      <p class="sub">${live ? 'You’re in Live GPS mode — walk for real to move. ' : 'Tap anywhere to travel there. '}Pinch, scroll or use ➕ ➖ to zoom, drag to look around. ${S.experimental ? '🧪 Experimental: whole map open' : 'Shaded areas unlock in 🧪 Experimental mode'} · ⚔️ arenas · 🔷 stops · 🕹️ arcades · 🟢 subway · 🟧 ferry · 🟡 you · Map data © OpenStreetMap contributors</p>
+      <div class="ov-wrap"><canvas id="ov-canvas"></canvas>
+        <div class="ov-ctl"><button id="ov-in" aria-label="Zoom in">➕</button><button id="ov-out" aria-label="Zoom out">➖</button><button id="ov-me" aria-label="Center on me">🎯</button><button id="ov-all" aria-label="Show everything">🗺️</button></div></div>`);
     const cv = $('#ov-canvas'), wrap = cv.parentElement;
-    const cssW = Math.min(wrap.clientWidth, innerHeight * 0.66 * W / H), s = cssW / W, cssH = H * s;
+    const cssW = Math.min(wrap.clientWidth, innerHeight * 0.66 * W / H), s0 = cssW / W, cssH = H * s0;
     cv.style.width = cssW + 'px'; cv.style.height = cssH + 'px';
     cv.width = cssW * dpr; cv.height = cssH * dpr;
-    const g = cv.getContext('2d'); g.scale(dpr, dpr);
-    g.drawImage(getOverview(), 0, 0, cssW, cssH);
-    if (!S.experimental) {
-      const c = 8;
-      g.fillStyle = 'rgba(40,40,55,.45)';
-      for (let yy = 0; yy < cssH; yy += c) for (let xx = 0; xx < cssW; xx += c) if (!isSafe((xx + c / 2) / s, (yy + c / 2) / s)) g.fillRect(xx, yy, c, c);
+    const g = cv.getContext('2d');
+    const fit = () => { ovView.x = clamp(ovView.x, 0, W - W / ovView.z); ovView.y = clamp(ovView.y, 0, H - H / ovView.z); };
+    const zoomAt = (f, sx, sy) => {
+      const s = s0 * ovView.z, wx = ovView.x + sx / s, wy = ovView.y + sy / s;
+      ovView.z = clamp(ovView.z * f, 1, 14);
+      const s2 = s0 * ovView.z; ovView.x = wx - sx / s2; ovView.y = wy - sy / s2; fit(); draw();
+    };
+    const center = (x, y, z) => { ovView.z = z; ovView.x = x - W / z / 2; ovView.y = y - H / z / 2; fit(); draw(); };
+    function draw() {
+      const s = s0 * ovView.z, X = x => (x - ovView.x) * s, Y = y => (y - ovView.y) * s;
+      const vis = (x, y) => x >= ovView.x - 50 && y >= ovView.y - 50 && x <= ovView.x + W / ovView.z + 50 && y <= ovView.y + H / ovView.z + 50;
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.fillStyle = '#3f8fd0'; g.fillRect(0, 0, cssW, cssH);
+      g.imageSmoothingEnabled = true;
+      const src = ovView.z > 1.6 ? getOverview2() : getOverview(), k = src.width / W;
+      g.drawImage(src, ovView.x * k, ovView.y * k, W / ovView.z * k, H / ovView.z * k, 0, 0, cssW, cssH);
+      if (!S.experimental) {
+        const c = 8;
+        g.fillStyle = 'rgba(40,40,55,.45)';
+        for (let yy = 0; yy < cssH; yy += c) for (let xx = 0; xx < cssW; xx += c) if (!isSafe(ovView.x + (xx + c / 2) / s, ovView.y + (yy + c / 2) / s)) g.fillRect(xx, yy, c, c);
+      }
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      const r = Math.min(5, 1.6 + ovView.z * 0.35);
+      for (const st of STOPS) if (!st.transit && !st.arcade && vis(st.x, st.y)) { g.fillStyle = (S.cooldowns[st.id] || 0) > Date.now() ? '#b36bd9' : '#2f9df4'; g.beginPath(); g.arc(X(st.x), Y(st.y), r * 0.7, 0, 7); g.fill(); }
+      for (const st of STOPS) if (st.transit && vis(st.x, st.y)) {
+        g.fillStyle = st.transit === 'ferry' ? '#f97316' : '#16a34a'; g.strokeStyle = '#fff'; g.lineWidth = 1.2;
+        g.beginPath(); if (st.transit === 'ferry') g.rect(X(st.x) - r, Y(st.y) - r, r * 2, r * 2); else g.arc(X(st.x), Y(st.y), r, 0, 7); g.fill(); g.stroke();
+      }
+      g.font = Math.round(8 + ovView.z * 0.9) + 'px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+      for (const st of STOPS) if (st.arcade && vis(st.x, st.y)) g.fillText('🕹️', X(st.x), Y(st.y));
+      // names appear once you zoom in far enough
+      if (ovView.z >= 5) {
+        g.font = '700 10px "Trebuchet MS", sans-serif';
+        for (const st of STOPS) if (vis(st.x, st.y) && (st.transit || st.arcade || ovView.z >= 8)) {
+          g.lineWidth = 3; g.strokeStyle = 'rgba(255,255,255,.85)'; g.strokeText(st.name, X(st.x), Y(st.y) + 10);
+          g.fillStyle = '#14204a'; g.fillText(st.name, X(st.x), Y(st.y) + 10);
+        }
+      }
+      g.font = '700 ' + Math.round(10 + Math.min(4, ovView.z * 0.5)) + 'px "Trebuchet MS", sans-serif';
+      for (const [n, p] of PLACES) {
+        if (!vis(p.x, p.y)) continue;
+        const half = g.measureText(n).width / 2 + 3, lx = clamp(X(p.x), half, cssW - half);
+        g.lineWidth = 3; g.strokeStyle = 'rgba(255,255,255,.85)'; g.strokeText(n, lx, Y(p.y));
+        g.fillStyle = '#14204a'; g.fillText(n, lx, Y(p.y));
+      }
+      g.font = Math.round(12 + ovView.z) + 'px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+      for (const a of ARENAS) if (vis(a.x, a.y)) g.fillText(S.badges[a.id] ? '🏆' : '⚔️', X(a.x), Y(a.y) - 5);
+      g.fillStyle = '#f2c14e'; g.strokeStyle = '#14204a'; g.lineWidth = 2.5;
+      g.beginPath(); g.arc(X(P.x), Y(P.y), 5 + Math.min(3, ovView.z * 0.3), 0, 7); g.fill(); g.stroke();
     }
-    g.textAlign = 'center'; g.textBaseline = 'middle';
-    for (const st of STOPS) if (!st.transit) { g.fillStyle = (S.cooldowns[st.id] || 0) > Date.now() ? '#b36bd9' : '#2f9df4'; g.beginPath(); g.arc(st.x * s, st.y * s, 2, 0, 7); g.fill(); }
-    for (const st of STOPS) if (st.transit) {
-      g.fillStyle = st.transit === 'ferry' ? '#f97316' : '#16a34a'; g.strokeStyle = '#fff'; g.lineWidth = 1.2;
-      g.beginPath(); if (st.transit === 'ferry') g.rect(st.x * s - 3, st.y * s - 3, 6, 6); else g.arc(st.x * s, st.y * s, 3.2, 0, 7); g.fill(); g.stroke();
-    }
-    g.font = '700 10px "Trebuchet MS", sans-serif';
-    for (const [n, p] of PLACES) {
-      const half = g.measureText(n).width / 2 + 3, lx = clamp(p.x * s, half, cssW - half);
-      g.lineWidth = 3; g.strokeStyle = 'rgba(255,255,255,.85)'; g.strokeText(n, lx, p.y * s);
-      g.fillStyle = '#14204a'; g.fillText(n, lx, p.y * s);
-    }
-    g.font = '12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-    for (const a of ARENAS) g.fillText(S.badges[a.id] ? '🏆' : '⚔️', a.x * s, a.y * s - 5);
-    g.fillStyle = '#f2c14e'; g.strokeStyle = '#14204a'; g.lineWidth = 2.5;
-    g.beginPath(); g.arc(P.x * s, P.y * s, 5, 0, 7); g.fill(); g.stroke();
-    cv.onclick = e => {
+    fit(); draw();
+    $('#ov-in').onclick = () => zoomAt(1.6, cssW / 2, cssH / 2);
+    $('#ov-out').onclick = () => zoomAt(1 / 1.6, cssW / 2, cssH / 2);
+    $('#ov-me').onclick = () => center(P.x, P.y, Math.max(ovView.z, 6));
+    $('#ov-all').onclick = () => center(W / 2, H / 2, 1);
+    cv.addEventListener('wheel', e => { e.preventDefault(); const rc = cv.getBoundingClientRect(); zoomAt(Math.exp(-e.deltaY * 0.0018), e.clientX - rc.left, e.clientY - rc.top); }, { passive: false });
+    // drag to pan, pinch to zoom, tap to travel
+    const pts = new Map();
+    let moved = 0, pinch0 = null;
+    cv.onpointerdown = e => { pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); moved = 0; try { cv.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch0 = { d: hyp(a.x, a.y, b.x, b.y) }; } };
+    cv.onpointermove = e => {
+      const p = pts.get(e.pointerId); if (!p) return;
+      const dx = e.clientX - p.x, dy = e.clientY - p.y;
+      p.x = e.clientX; p.y = e.clientY; moved += Math.abs(dx) + Math.abs(dy);
+      if (pts.size === 2 && pinch0) {
+        const [a, b] = [...pts.values()], d = hyp(a.x, a.y, b.x, b.y), rc = cv.getBoundingClientRect();
+        zoomAt(d / pinch0.d, (a.x + b.x) / 2 - rc.left, (a.y + b.y) / 2 - rc.top); pinch0.d = d;
+      } else if (pts.size === 1) { const s = s0 * ovView.z; ovView.x -= dx / s; ovView.y -= dy / s; fit(); draw(); }
+    };
+    const up = e => {
+      const was = pts.size;
+      pts.delete(e.pointerId); if (pts.size < 2) pinch0 = null;
+      if (was !== 1 || moved > 8 || e.type === 'pointercancel') return;
       if (S.mode === 'live') { toast('🛰️ In Live GPS mode you move by walking. Switch to Explore mode in the 👑 menu to fast-travel.'); return; }
-      const r = cv.getBoundingClientRect();
-      const x = clamp((e.clientX - r.left) / s, 20, W - 20), y = clamp((e.clientY - r.top) / s, 20, H - 20);
+      const rc = cv.getBoundingClientRect(), s = s0 * ovView.z;
+      const x = clamp(ovView.x + (e.clientX - rc.left) / s, 20, W - 20), y = clamp(ovView.y + (e.clientY - rc.top) / s, 20, H - 20);
       if (!isSafe(x, y)) { safeBlocked(); return; }
       target = { x, y }; holding = false;
       P.travel = hyp(x, y, P.x, P.y) > 900;
       closeModal();
       toast(`${P.travel ? '🚕 Heading to' : '🚶 Walking to'} ${placeAt(x, y).name}…`);
     };
+    cv.onpointerup = up; cv.onpointercancel = up;
   }
   $('#btn-map').onclick = showOverview;
+  $('#quest-chip').onclick = showQuests;
+  $('#zoom-in').onclick = () => setZoom(userZoom * 1.35);
+  $('#zoom-out').onclick = () => setZoom(userZoom / 1.35);
+  $('#zoom-lvl').onclick = () => setZoom(1);
+  setZoom(userZoom); paintQuest();
+  setInterval(paintQuest, 2000);
 
   // Pre-draw the tiles around the player so walking never stutters.
   function prebuildTiles() {
