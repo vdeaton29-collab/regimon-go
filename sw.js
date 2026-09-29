@@ -1,5 +1,5 @@
 // Regimon GO service worker: caches the game so it works offline after the first visit.
-const CACHE = 'regimon-go-v16';
+const CACHE = 'regimon-go-v17';
 const FILES = [
   './', 'index.html', 'style.css', 'manifest.webmanifest', 'icon.svg',
   'js/osm.js', 'js/geo.js', 'js/data.js', 'js/families.js', 'js/evolutions.js', 'js/art.js', 'js/music.js', 'js/online.js', 'js/cloud.js', 'js/minigames.js', 'js/battle.js', 'js/game.js',
@@ -19,7 +19,8 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
   e.respondWith(
-    fetch(e.request, { cache: 'no-cache' })   // always check with the server so new versions show up right away
+    // always check with the server so new versions show up right away (a fresh Request works for page loads too)
+    fetch(new Request(e.request.url, { cache: 'no-cache', credentials: 'same-origin' }))
       .then(res => {
         const copy = res.clone();
         caches.open(CACHE).then(c => c.put(e.request, copy));

@@ -11,7 +11,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👑</text></svg>">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icon.svg">
-  <link rel="stylesheet" href="style.css?v=16">
+  <link rel="stylesheet" href="style.css?v=17">
 </head>
 <body>
   <canvas id="map"></canvas>
@@ -123,17 +123,28 @@
     </div>
   </section>
 
-  <script src="js/osm.js?v=16"></script>
-  <script src="js/geo.js?v=16"></script>
-  <script src="js/data.js?v=16"></script>
-  <script src="js/families.js?v=16"></script>
-  <script src="js/evolutions.js?v=16"></script>
-  <script src="js/art.js?v=16"></script>
-  <script src="js/music.js?v=16"></script>
-  <script src="js/online.js?v=16"></script>
-  <script src="js/cloud.js?v=16"></script>
-  <script src="js/minigames.js?v=16"></script>
-  <script src="js/battle.js?v=16"></script>
-  <script src="js/game.js?v=16"></script>
+  <script>
+    // If an old cached copy of the game gets stuck, clear it and reload once.
+    addEventListener('load', () => setTimeout(async () => {
+      if (window.__rgStarted) return;
+      let tried = false; try { tried = sessionStorage.getItem('rg-repair') === '1'; sessionStorage.setItem('rg-repair', '1'); } catch (e) { /* ignore */ }
+      if (tried) return;
+      try { for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); } catch (e) { /* ignore */ }
+      try { for (const k of await caches.keys()) await caches.delete(k); } catch (e) { /* ignore */ }
+      location.reload();
+    }, 12000));
+  </script>
+  <script src="js/osm.js?v=17"></script>
+  <script src="js/geo.js?v=17"></script>
+  <script src="js/data.js?v=17"></script>
+  <script src="js/families.js?v=17"></script>
+  <script src="js/evolutions.js?v=17"></script>
+  <script src="js/art.js?v=17"></script>
+  <script src="js/music.js?v=17"></script>
+  <script src="js/online.js?v=17"></script>
+  <script src="js/cloud.js?v=17"></script>
+  <script src="js/minigames.js?v=17"></script>
+  <script src="js/battle.js?v=17"></script>
+  <script src="js/game.js?v=17"></script>
 </body>
 </html>

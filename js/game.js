@@ -3,7 +3,7 @@
   'use strict';
   const { TYPES, RARITY, SHINY_ODDS, BALLS, ZONES, ZONE_HINTS, ARENAS, TRAINER_NAMES, SPECIES } = window.RG;
   const RG = window.RG;
-  const GAME_VERSION = 16;
+  const GAME_VERSION = 17;
   const GEO = window.RGGeo;
   const { W, H, PPM } = GEO;
   const Art = window.RGArt, Music = window.RGMusic, Battle = window.RGBattle, Online = window.RGOnline;
@@ -3646,4 +3646,6 @@
   if (!S.intro) showHelp(true);
   else if (S.giftPending) setTimeout(openGift, 2500);
   requestAnimationFrame(frame);
+  window.__rgStarted = true;
+  try { sessionStorage.removeItem('rg-repair'); } catch (e) { /* ignore */ }
 })();
