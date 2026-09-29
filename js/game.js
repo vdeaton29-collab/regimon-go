@@ -2,6 +2,7 @@
 (() => {
   'use strict';
   const { TYPES, RARITY, SHINY_ODDS, BALLS, ZONES, ZONE_HINTS, ARENAS, TRAINER_NAMES, SPECIES } = window.RG;
+  const RG = window.RG;
   const GEO = window.RGGeo;
   const { W, H, PPM } = GEO;
   const Art = window.RGArt, Music = window.RGMusic, Battle = window.RGBattle, Online = window.RGOnline;
@@ -26,7 +27,7 @@
       version: SAVE_VERSION, xp: 0, level: 1, items: { regi: 30, honors: 5, magna: 1, bagel: 5 },
       dex: {}, caught: [], cooldowns: {}, badges: {}, px: START.x, py: START.y, intro: false, nextUid: 1,
       rating: 1000, leagueW: 0, leagueL: 0, leagueBest: 1000, mode: 'explore', walked: 0, shinies: 0,
-      name: '', pid: Math.random().toString(36).slice(2, 12), online: false, music: 'auto', experimental: false,
+      name: '', pid: Math.random().toString(36).slice(2, 12), online: false, music: 'auto', experimental: false, candy: {},
     };
   }
   function load() {
@@ -37,6 +38,7 @@
         s.items = Object.assign(freshState().items, s.items);
         // Version 1 saves used the old 83rd–96th St map: keep everything but the position.
         if (!s.pid) s.pid = Math.random().toString(36).slice(2, 12);
+        if (!s.candy || !Object.keys(s.candy).length) { s.candy = {}; for (const c of s.caught || []) { const sp = SPECIES.find(x => x.id === c.sid); if (sp) { const f = RG.familyOf(sp); s.candy[f] = (s.candy[f] || 0) + 10; } } }
         if (s.version !== SAVE_VERSION) { s.version = SAVE_VERSION; s.px = START.x; s.py = START.y; s.cooldowns = {}; }
         if (!(s.px > 0 && s.px < W && s.py > 0 && s.py < H)) { s.px = START.x; s.py = START.y; }
         return s;
@@ -1672,8 +1674,10 @@
     const shiny = !!C.spawn.shiny;
     if (shiny) { d.shiny = (d.shiny || 0) + 1; S.shinies++; }
     S.caught.push({ uid: S.nextUid++, sid: sp.id, cp: C.cp, t: Date.now(), ball: C.ball.type, shiny });
+    const candy = 3 + Math.min(4, sp.rarity - 1) * 2;
+    addCandy(sp, candy);
     const xp = 100 + 60 * (sp.rarity - 1) + (sp.rarity >= 6 ? 1500 : 0) + (shiny ? 500 : 0) + (isNew ? 500 : 0) + ({ 'Nice!': 10, 'Great!': 50, 'Excellent!': 100 }[C.bonus] || 0);
-    C.reward = { xp, isNew };
+    C.reward = { xp, isNew, candy };
     addXP(xp);
     save();
   }
@@ -1685,7 +1689,7 @@
       <img src="${Art.url(sp, C.spawn.shiny)}" alt="">
       <h2>${C.spawn.shiny ? '✨ Shiny ' : ''}${sp.name} was caught!</h2>
       <p class="sub">CP ${C.cp} · ${RARITY[sp.rarity].name}${C.bonus ? ` · ${C.bonus.replace('!', '')} throw` : ''}</p>
-      <div class="xpgain">+${r.xp} XP</div>
+      <div class="xpgain">+${r.xp} XP · +${r.candy} 🍬 ${candyName(sp)}</div>
       <button class="primary" id="res-ok">OK</button>
     </div>`, () => closeCatch(true));
     $('#res-ok').onclick = () => closeModal();
@@ -1885,6 +1889,8 @@
         <div><b>${d.shiny ? d.shiny + ' ✨' : d.seen}</b><span>${d.shiny ? 'Shiny' : 'Seen'}</span></div>
       </div>
       <p class="sub">📍 Found near: ${s.habitat.map(z => ZONES[z]).join(', ')}</p>
+      ${evoLine(s).length > 1 ? `<div class="evo-line">${evoLine(s).map(x => `<span class="${x.id === s.id ? 'on' : ''}"><img src="${Art.url(x)}" class="${dexEntry(x.id).caught ? '' : dexEntry(x.id).seen ? 'seen' : 'sil'}" alt=""><small>${dexEntry(x.id).caught || dexEntry(x.id).seen ? x.name : '???'}</small></span>`).join('<b>➜</b>')}</div>
+      <p class="sub">🍬 ${candyOf(s)} ${candyName(s)}${RG.EVOLVES[s.id] ? ` · ${RG.evolveCost(s)} to evolve` : ''}</p>` : ''}
       ${d.caught ? movesHTML(s) : ''}
       <div class="row"><button class="ghost" id="sp-back">← Back</button></div>
     </div>`);
@@ -1956,6 +1962,71 @@
     });
   }
 
+  // ---------------- candy & evolution ----------------
+  const candyOf = sp => S.candy[RG.familyOf(sp)] || 0;
+  const candyName = sp => byId[RG.familyOf(sp)].name + ' Candy';
+  function addCandy(sp, n) { const f = RG.familyOf(sp); S.candy[f] = (S.candy[f] || 0) + n; }
+  function evoLine(sp) {
+    const f = RG.familyOf(sp), line = [byId[f]];
+    while (RG.EVOLVES[line[line.length - 1].id]) line.push(byId[RG.EVOLVES[line[line.length - 1].id]]);
+    return line;
+  }
+  function showMon(uid, back) {
+    const c = S.caught.find(m => m.uid === uid);
+    if (!c) return back();
+    const s = byId[c.sid], next = RG.EVOLVES[s.id] && byId[RG.EVOLVES[s.id]], cost = next ? RG.evolveCost(s) : 0, have = candyOf(s);
+    const line = evoLine(s);
+    openModal(`<div class="detail">
+      <img src="${Art.url(s, c.shiny)}" alt="">
+      <p class="sub">CP <b>${c.cp}</b> · Lv ${Battle.levelFromCP(c.cp)}${c.shiny ? ' · ✨ Shiny' : ''}</p>
+      <h2>${s.name}</h2>
+      <div class="tags">${typeTags(s)}<span class="rar r${s.rarity}">${RARITY[s.rarity].name}</span></div>
+      <div class="evo-line">${line.map(x => `<span class="${x.id === s.id ? 'on' : ''}"><img src="${Art.url(x, c.shiny)}" class="${dexEntry(x.id).caught || x.id === s.id ? '' : 'sil'}" alt=""><small>${dexEntry(x.id).caught ? x.name : '???'}</small></span>`).join('<b>➜</b>')}</div>
+      <p class="sub">🍬 <b>${have}</b> ${candyName(s)}</p>
+      ${next ? `<button class="primary evo-btn" id="mon-evolve" ${have >= cost ? '' : 'disabled'}>⬆️ Evolve · 🍬 ${cost}</button>`
+        : `<p class="sub">${line.length > 1 ? '🌟 Fully evolved!' : 'This Regimon does not evolve.'}</p>`}
+      ${movesHTML(s)}
+      <div class="row"><button class="ghost" id="mon-back">← Back</button><button class="ghost" id="mon-dex">📖 Regidex</button><button class="ghost" id="mon-transfer">🎁 Transfer (+1 🍬)</button></div>
+    </div>`);
+    $('#mon-back').onclick = back;
+    $('#mon-dex').onclick = () => showSpecies(s.id, () => showMon(uid, back));
+    $('#mon-transfer').onclick = () => {
+      if (S.caught.length <= 1) { toast('Keep at least one Regimon!'); return; }
+      S.caught = S.caught.filter(m => m.uid !== uid); addCandy(s, 1); save();
+      toast(`🎁 Sent ${s.name} to Professor Regis. +1 🍬`); back();
+    };
+    const btn = $('#mon-evolve');
+    if (btn) btn.onclick = () => evolve(c, back);
+  }
+  function evolve(c, back) {
+    const s = byId[c.sid], to = byId[RG.EVOLVES[s.id]], cost = RG.evolveCost(s);
+    if (!to || candyOf(s) < cost) return;
+    S.candy[RG.familyOf(s)] -= cost;
+    const oldCP = c.cp;
+    c.sid = to.id;
+    c.cp = Math.round(c.cp * (1.45 + 0.1 * (to.rarity - s.rarity)) + 20);
+    const d = dexEntry(to.id), isNew = !d.caught;
+    d.caught++; d.seen = Math.max(d.seen, 1);
+    if (c.shiny) d.shiny = (d.shiny || 0) + 1;
+    const xp = 500 + (isNew ? 1000 : 0);
+    addXP(xp); save();
+    openModal(`<div class="evolving">
+      <p class="sub">What? <b>${s.name}</b> is evolving!</p>
+      <div class="evo-stage"><div class="evo-rays"></div>
+        <img class="evo-from" src="${Art.url(s, c.shiny)}" alt=""><img class="evo-to" src="${Art.url(to, c.shiny)}" alt=""></div>
+      <div class="evo-done">
+        <h2>${s.name} evolved into ${to.name}!</h2>
+        <p class="sub">CP ${oldCP} ➜ <b>${c.cp}</b>${to.sig ? ` · New move: <b>${to.sig[0]}</b> ★` : ''}</p>
+        ${isNew ? '<span class="newbadge">NEW REGIDEX ENTRY!</span>' : ''}
+        <div class="xpgain">+${xp} XP</div>
+        <button class="primary" id="evo-ok">Awesome!</button>
+      </div>
+    </div>`);
+    Music.sfx('charge');
+    setTimeout(() => Music.sfx('levelup'), 2600);
+    setTimeout(() => { const ok = $('#evo-ok'); if (ok) ok.onclick = () => showMon(c.uid, back); }, 0);
+  }
+
   function showBox(sort = 'recent') {
     const list = [...S.caught];
     if (sort === 'recent') list.sort((a, b) => b.t - a.t);
@@ -1967,12 +2038,13 @@
     if (!shown.length) h += `<p class="sub" style="text-align:center;padding:30px 0">Nothing yet! Walk around 84th Street and tap a Regimon to catch it.</p>`;
     else h += `<div class="grid">${shown.map(c => {
       const s = byId[c.sid];
-      return `<button class="card caught" data-sid="${c.sid}"><span class="cp">CP ${c.cp}</span><img src="${Art.url(s, c.shiny)}" alt="">${c.shiny ? '<span class="shiny-tag">✨</span>' : ''}<span class="nm">${s.name}</span></button>`;
+      const ev = RG.EVOLVES[c.sid] && candyOf(s) >= RG.evolveCost(s);
+      return `<button class="card caught" data-uid="${c.uid}" data-sid="${c.sid}"><span class="cp">CP ${c.cp}</span>${ev ? '<span class="evo-tag" title="Ready to evolve">⬆️</span>' : ''}<img src="${Art.url(s, c.shiny)}" alt="">${c.shiny ? '<span class="shiny-tag">✨</span>' : ''}<span class="nm">${s.name}</span></button>`;
     }).join('')}</div>`;
     openModal(h);
     document.querySelectorAll('#modal-body [data-sort]').forEach(el => { el.onclick = () => showBox(el.dataset.sort); });
     document.querySelectorAll('#modal-body .card[data-sid]').forEach(el => {
-      el.onclick = () => showSpecies(+el.dataset.sid, () => showBox(sort));
+      el.onclick = () => showMon(+el.dataset.uid, () => showBox(sort));
     });
   }
 
@@ -2067,6 +2139,7 @@
         <li>🔷 <b>Stops</b> — tap the spinning diamonds at landmarks for Regi Balls and Bagels.</li>
         <li>🗺️ <b>Explore NYC</b> — every neighborhood has its own Regimon: Skyscraper types in Midtown, Wall Street types downtown, Harbor types by the Statue of Liberty, Jersey types across the Hudson. Open the map to fast-travel anywhere.</li>
         <li>✅ <b>Safe & 🧪 Experimental</b> — you start in the best areas (Manhattan, the harbor, Hoboken, downtown Jersey City). Turn on Experimental mode in the 👑 menu to explore the whole map while it's still being finished.</li>
+        <li>⬆️ <b>Evolving</b> — every catch gives 🍬 candy for that Regimon's family. Open 🗃️ Caught, tap a Regimon and press Evolve when you have enough candy. Transfer extras for +1 🍬.</li>
         <li>🌟 <b>Rarities</b> — Common, Uncommon, Rare, Legendary, <b>Mythic</b> and <b>Celestial</b>. The rarest appear under a beam of light. About 1 in 64 is a ✨ shiny.</li>
         <li>⚔️ <b>Battle</b> — hold to fast-attack and build ⚡ energy, fire special attacks, time the meter, and use your 2 🛡️ shields. Beat all 15 arena leaders, from the Great Lawn to Liberty Island.</li>
         <li>🏆 <b>Battle League</b> — ranked battles to climb from Freshman to Valedictorian.</li>
