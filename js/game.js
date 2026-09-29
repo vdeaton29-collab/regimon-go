@@ -2000,6 +2000,7 @@
 
   function landBall() {
     const b = C.ball, L = C.L, p = creaturePos(C.t);
+    if (C.spawn.gift) { b.hit = true; b.tx = p.x; b.ty = p.y; }   // gift encounters: every throw lands
     const dx = Math.abs(b.tx - p.x);
     if (!b.hit || dx > L.R * 0.85) {
       catchMsg(b.hit ? 'Missed!' : 'Too short!');
@@ -2017,7 +2018,7 @@
     const chance = catchChance(C.sp, b.type, C.bagel, mult);
     C.bagel = false;
     C.bonus = bonus;
-    C.success = Math.random() < chance;
+    C.success = !!C.spawn.gift || Math.random() < chance;
     C.wobbles = C.success ? 3 : Math.floor(Math.random() * 3);
     C.wobblesDone = 0;
     C.flee = !C.success && !C.spawn.boss && Math.random() < RARITY[C.sp.rarity].flee;
@@ -2033,7 +2034,8 @@
     const shiny = !!C.spawn.shiny;
     if (shiny) { d.shiny = (d.shiny || 0) + 1; S.shinies++; }
     S.caught.push({ uid: S.nextUid++, sid: sp.id, cp: C.cp, t: Date.now(), ball: C.ball.type, shiny });
-    if (C.spawn.boss) { S.quest = { round: S.quest.round + 1, prog: {}, boss: false, beaten: false, shiny: null }; setTimeout(() => toast('📜 New quests are ready — a harder round!', 3500), 2500); }
+    if (C.spawn.gift) { S.giftPending = null; addCandy(sp, 25); }
+    else if (C.spawn.boss) { S.quest = { round: S.quest.round + 1, prog: {}, boss: false, beaten: false, shiny: null }; setTimeout(() => toast('📜 New quests are ready — a harder round!', 3500), 2500); }
     else { qAdd('catch'); if (C.bonus === 'Great!' || C.bonus === 'Excellent!') qAdd('throw'); }
     const candy = 3 + Math.min(4, sp.rarity - 1) * 2;
     addCandy(sp, candy);
@@ -2434,18 +2436,25 @@
     const gift = GIFTS[hash];
     S.redeemed = S.redeemed || [];
     if (!gift) { toast('🎁 That code doesn’t work.'); return; }
-    if (S.redeemed.includes(hash)) { toast('🎁 You already redeemed this code.'); return; }
-    const sp = byId[gift.sid];
+    if (S.redeemed.includes(hash)) {
+      if (S.giftPending) { closeModal(); openGift(); } else toast('🎁 You already redeemed this code.');
+      return;
+    }
     S.redeemed.push(hash);
-    S.caught.push({ uid: S.nextUid++, sid: sp.id, cp: gift.cp, t: Date.now(), ball: 'magna', shiny: false });
-    const d = dexEntry(sp.id); d.seen = Math.max(1, d.seen); d.caught++;
-    addCandy(sp, 25);
+    S.giftPending = { sid: gift.sid, cp: gift.cp };
     save();
+    closeModal();
+    openGift();
+  }
+  // The gift appears as a wild encounter; the first ball that hits always catches it, and it never runs away.
+  function openGift() {
+    const p = S.giftPending;
+    if (!p || !byId[p.sid] || mode !== 'map') return;
+    const sp = byId[p.sid];
+    dexEntry(sp.id);
     Music.sfx('rankup');
-    openModal(`<div class="result"><span class="newbadge">GIFT!</span><img src="${Art.url(sp)}" alt="">
-      <h2>You received ${sp.name}!</h2><p class="sub">CP ${gift.cp} · ${RARITY[sp.rarity].name} · +25 🍬</p>
-      <button class="primary" id="gift-ok">Awesome!</button></div>`);
-    $('#gift-ok').onclick = () => closeModal();
+    openCatch({ sp, cp: p.cp, shiny: false, zone: 'midtown', boss: true, gift: true, x: P.x, y: P.y, born: 0, expires: Infinity, phase: 0 });
+    banner('🎁 ' + sp.name.toUpperCase() + '!', 'A gift appeared — this catch is guaranteed!');
   }
 
   // ---------------- candy & evolution ----------------
@@ -3263,5 +3272,6 @@
   seedSpawns();
   renderNearby();
   if (!S.intro) showHelp(true);
+  else if (S.giftPending) setTimeout(openGift, 2500);
   requestAnimationFrame(frame);
 })();
