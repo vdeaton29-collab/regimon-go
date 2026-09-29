@@ -2400,6 +2400,7 @@
   // ---------------- gift codes ----------------
   const GIFTS = {
     '93826a9e0f160cdc23c13f3eb7648b7188b9206d2d9d282bde66df8132f2f133': { sid: 313, cp: 2600, text: 'the Mythic Umbravolt' },
+    '1404b76cb20a74f08eab163dbf034da109650d17d93d00c42643bc1ea0fa66c6': { sid: 313, cp: 2600, text: 'the Mythic Umbravolt' },
   };
   // Small SHA-256 (works even where the browser's crypto API is blocked, like inside the claude.ai preview).
   function sha256hex(str) {
