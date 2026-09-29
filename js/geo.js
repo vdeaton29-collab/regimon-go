@@ -336,7 +336,7 @@ window.RGGeo = (() => {
       const q = toXY(p.lat, p.lon);
       if (have.some(h => Math.hypot(h.x - q.x, h.y - q.y) < 45 * PPM)) continue;
       have.push(q);
-      LANDMARKS.push(L(p.name, p.lat, p.lon, p.zone, p.zone ? 55 : 0, p.icon, 0, '', p.blurb));
+      const lm = L(p.name, p.lat, p.lon, p.zone, p.zone ? 55 : 0, p.icon, 0, '', p.blurb); lm.osm = true; LANDMARKS.push(lm);
     }
     if (OSM.chunks) DETAIL = { cols: OSM.cols, rows: OSM.rows, cw: OSM.cw, ch: OSM.ch, chunks: OSM.chunks };
   }

@@ -3,6 +3,7 @@
   'use strict';
   const { TYPES, RARITY, SHINY_ODDS, BALLS, ZONES, ZONE_HINTS, ARENAS, TRAINER_NAMES, SPECIES } = window.RG;
   const RG = window.RG;
+  const GAME_VERSION = 15;
   const GEO = window.RGGeo;
   const { W, H, PPM } = GEO;
   const Art = window.RGArt, Music = window.RGMusic, Battle = window.RGBattle, Online = window.RGOnline;
@@ -18,9 +19,19 @@
   const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const START = GEO.toXY(40.7789, -73.9596);   // the front steps of Regis on 84th Street
   const hashStr = s => { let h = 7; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) | 0; return Math.abs(h); };
-  const STOPS = GEO.LANDMARKS.map(l => ({ id: slug(l.name), name: l.name, icon: l.icon, blurb: l.blurb, transit: l.zone === 'subway' ? (l.icon === '⛴️' ? 'ferry' : 'subway') : null, ...GEO.toXY(l.lat, l.lon) }));
-  // About one in six stops is an arcade with a minigame.
-  for (const st of STOPS) if (!st.transit && hashStr(st.id) % 6 === 0) st.arcade = RGMini.KINDS[hashStr(st.id + '!') % RGMini.KINDS.length];
+  // The map shows only the hand-picked key landmarks as stops, plus every subway/ferry station.
+  // Other OpenStreetMap places become arcades, spread out so the map doesn't get crowded.
+  const ALL_STOPS = GEO.LANDMARKS.map(l => ({ id: slug(l.name), name: l.name, icon: l.icon, blurb: l.blurb, osm: !!l.osm, transit: l.zone === 'subway' ? (l.icon === '⛴️' ? 'ferry' : 'subway') : null, ...GEO.toXY(l.lat, l.lon) }));
+  const STOPS = ALL_STOPS.filter(st => !st.osm || st.transit);
+  {
+    const arcades = [];
+    for (const st of ALL_STOPS.filter(s => s.osm && !s.transit).sort((a, b) => hashStr(a.id) - hashStr(b.id))) {
+      if (arcades.some(a => hyp(a.x, a.y, st.x, st.y) < 1300) || STOPS.some(s => hyp(s.x, s.y, st.x, st.y) < 120)) continue;
+      st.arcade = RGMini.KINDS[hashStr(st.id + '!') % RGMini.KINDS.length];
+      arcades.push(st);
+    }
+    STOPS.push(...arcades);
+  }
   for (const a of ARENAS) Object.assign(a, GEO.toXY(a.lat, a.lon));
 
   // ---------------- save ----------------
@@ -804,8 +815,10 @@
     return { x: P.x + (sx - innerWidth / 2) / zoom, y: P.y + (sy - innerHeight / 2) / zoom };
   }
   mapCv.addEventListener('pointerdown', e => {
+    if (mode === 'casino') { if (!modalOpen) casinoTap(e); return; }
     if (mode !== 'map' || modalOpen) return;
     const w = screenToWorld(e.clientX, e.clientY);
+    if (Math.abs(w.x - CASINO.x) < 140 && w.y < CASINO.y + 20 && w.y > CASINO.y - 340) { tapCasino(); return; }
     if (buddyMon() && hyp(w.x, w.y, BUD.x, BUD.y - 25) < 28) { BUD.love = 1.5; Music.sfx('buff'); toast(`❤️ <b>${byId[buddyMon().sid].name}</b> loves the attention!`); return; }
     let best = null, bd = 42;
     for (const s of spawns) { const d = hyp(w.x, w.y, s.x, s.y - 24); if (d < bd) { bd = d; best = s; } }
@@ -875,7 +888,7 @@
     keys[e.key.toLowerCase()] = true;
     if (mode === 'map' && !modalOpen && (e.key === '+' || e.key === '=')) setZoom(userZoom * 1.3);
     if (mode === 'map' && !modalOpen && (e.key === '-' || e.key === '_')) setZoom(userZoom / 1.3);
-    if (e.key === 'Escape') { if (modalOpen) closeModal(); else if (C && C.state === 'idle') closeCatch(false); }
+    if (e.key === 'Escape') { if (modalOpen) closeModal(); else if (mode === 'casino') exitCasino(); else if (C && C.state === 'idle') closeCatch(false); }
   });
   addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
   addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
@@ -1142,6 +1155,11 @@
         ctx.shadowBlur = 0;
         ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.beginPath(); ctx.arc(lx - 1.5, ly - 1.5, 1.6, 0, 7); ctx.fill();
       }
+    }
+    if (!inR && zoom < 1.5) {
+      ctx.fillStyle = ferry ? '#0c4a6e' : '#111827'; ctx.beginPath(); ctx.arc(x, y - 44, 11, 0, 7); ctx.fill();
+      ctx.font = '12px "Segoe UI Emoji", "Apple Color Emoji", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(ferry ? '⛴️' : '🚇', x, y - 43);
+      ctx.restore(); return;
     }
     // station sign
     const sy = y - 46 + Math.sin(t / 600 + x) * 1.5;
@@ -1496,6 +1514,373 @@
     }
   }
 
+  // ---------------- Regi Casino (Times Square) ----------------
+  const CASINO = { name: 'Regi Casino', ...GEO.toXY(40.7597, -73.9847) };
+  function drawCasino(t) {
+    const x = CASINO.x, y = CASINO.y, inR = hyp(P.x, P.y, x, y) <= RANGE + 120;
+    ctx.save(); ctx.translate(x, y);
+    // spotlights sweeping the sky
+    for (let i = 0; i < 2; i++) {
+      const a = Math.sin(t / 1400 + i * 2) * 0.5 + (i ? 0.35 : -0.35);
+      const gl = ctx.createLinearGradient(0, -120, 0, -520);
+      gl.addColorStop(0, 'rgba(255,255,210,.35)'); gl.addColorStop(1, 'rgba(255,255,210,0)');
+      ctx.save(); ctx.translate(i ? 90 : -90, -120); ctx.rotate(a); ctx.fillStyle = gl;
+      ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(-55, -420); ctx.lineTo(55, -420); ctx.lineTo(6, 0); ctx.fill(); ctx.restore();
+    }
+    ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(0, 6, 150, 26, 0, 0, 7); ctx.fill();
+    // tower
+    const gb = ctx.createLinearGradient(-130, 0, 130, 0);
+    gb.addColorStop(0, '#1e1b4b'); gb.addColorStop(0.5, '#4c1d95'); gb.addColorStop(1, '#1e1b4b');
+    ctx.fillStyle = gb; ctx.fillRect(-120, -250, 240, 250);
+    ctx.fillStyle = '#312e81'; ctx.fillRect(-80, -330, 160, 90);
+    // lit windows
+    for (let wy = -318; wy < -250; wy += 16) for (let wx = -70; wx < 70; wx += 20) { ctx.fillStyle = (Math.floor(t / 500) + wx + wy) % 3 ? 'rgba(253,224,71,.85)' : 'rgba(236,72,153,.8)'; ctx.fillRect(wx, wy, 10, 8); }
+    for (let wy = -236; wy < -120; wy += 18) for (let wx = -106; wx < 106; wx += 22) { ctx.fillStyle = ((wx * 7 + wy * 3 + Math.floor(t / 700)) % 4) ? 'rgba(253,224,71,.7)' : 'rgba(56,189,248,.8)'; ctx.fillRect(wx, wy, 12, 9); }
+    // marquee with chasing bulbs
+    ctx.fillStyle = '#111827'; rr(ctx, -140, -118, 280, 62, 12); ctx.fill();
+    for (let i = 0; i < 28; i++) {
+      const on = (i + Math.floor(t / 120)) % 3 === 0;
+      const bx = -132 + (i % 14) * 20.3, by = i < 14 ? -112 : -62;
+      ctx.fillStyle = on ? '#fde047' : '#78350f'; ctx.beginPath(); ctx.arc(bx, by, 3.2, 0, 7); ctx.fill();
+    }
+    ctx.shadowColor = '#f0abfc'; ctx.shadowBlur = 14 + 6 * Math.sin(t / 250);
+    ctx.font = '900 30px "Trebuchet MS", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#f0abfc'; ctx.fillText('REGI CASINO', 0, -87);
+    ctx.shadowBlur = 0;
+    // entrance
+    ctx.fillStyle = '#f2c14e'; ctx.fillRect(-46, -54, 92, 54);
+    ctx.fillStyle = '#7f1d1d'; ctx.fillRect(-38, -48, 76, 48);
+    ctx.fillStyle = '#b91c1c'; ctx.fillRect(-60, -4, 120, 10);
+    // giant slot machine sign on the roof
+    ctx.font = '64px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+    ctx.fillText('🎰', 0, -370 + Math.sin(t / 500) * 4);
+    ctx.restore();
+    ctx.font = '800 15px "Trebuchet MS", sans-serif'; ctx.textAlign = 'center';
+    const tip = inR ? '🎰 Tap to enter the Regi Casino' : '🎰 Regi Casino';
+    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255,255,255,.95)'; ctx.strokeText(tip, x, y + 30);
+    ctx.fillStyle = '#6d28d9'; ctx.fillText(tip, x, y + 30);
+  }
+  function tapCasino() {
+    if (hyp(P.x, P.y, CASINO.x, CASINO.y) > RANGE + 120) { toast('🎰 <b>Regi Casino</b><br>Walk up to the doors to go inside.'); return; }
+    openModal(`<div class="result"><div class="bigemoji">🎰</div><h2>Regi Casino</h2>
+      <p class="sub">Times Square’s biggest game floor. Bet 🍭 Rare Candy at roulette and blackjack, and buy rare Regimon from the cages. The cages restock every day.</p>
+      <p class="sub">You have <b>🍭 ${S.rareCandy}</b> Rare Candy. (It’s all just in-game candy — earn more at 🕹️ arcades.)</p>
+      <button class="primary" id="cas-go">🚪 Go inside</button></div>`);
+    $('#cas-go').onclick = () => { closeModal(); enterCasino(); };
+  }
+
+  // ---------------- casino interior ----------------
+  const CW = 1000, CH = 1300;
+  const CP = { x: 500, y: 1170, face: 1, moving: false, walkT: 0 };
+  let ctarget = null, cpending = null, carpet = null;
+  const CAGE_SPOTS = [[170, 210], [390, 210], [610, 210], [830, 210], [110, 470], [110, 690], [890, 470], [890, 690]];
+  const COBJ = [
+    { kind: 'roulette', x: 330, y: 720, r: 105, name: 'Roulette' },
+    { kind: 'blackjack', x: 670, y: 720, r: 105, name: 'Blackjack' },
+    { kind: 'exit', x: 500, y: 1265, r: 70, name: 'Exit' },
+    ...CAGE_SPOTS.map(([x, y], i) => ({ kind: 'cage', i, x, y, r: 62 })),
+  ];
+  const dayKey = () => new Date().toISOString().slice(0, 10);
+  function casinoStock() {
+    const day = dayKey();
+    if (!S.casino || S.casino.day !== day) S.casino = { day, sold: [] };
+    let a = hashStr('casino' + day);
+    const r = () => { a = (a * 1103515245 + 12345) & 0x7fffffff; return a / 0x7fffffff; };
+    const top = SPECIES.filter(s => s.rarity >= 5 && !s.boss), mid = SPECIES.filter(s => s.rarity >= 3 && s.rarity <= 4);
+    const out = [];
+    while (out.length < 8) {
+      const pool = out.length < 3 ? top : mid, sp = pool[Math.floor(r() * pool.length)];
+      if (out.some(o => o.sp === sp)) continue;
+      const shiny = r() < 0.12;
+      out.push({ sp, shiny, cp: Math.round(900 + sp.rarity * 230 + r() * 400), price: ({ 3: 12, 4: 25, 5: 50, 6: 100, 7: 180 }[sp.rarity] || 25) * (shiny ? 2 : 1) });
+    }
+    return shuffleSeeded(out, r);
+  }
+  function shuffleSeeded(arr, r) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
+  let STOCK = [];
+  function enterCasino() {
+    STOCK = casinoStock();
+    mode = 'casino'; target = null; holding = false;
+    CP.x = 500; CP.y = 1170; ctarget = null; cpending = null;
+    document.body.classList.add('in-casino');
+    $('#casino-hud').classList.remove('hidden');
+    paintCasinoHud();
+    Music.play('city'); Music.sfx('ready');
+    toast('🎰 Welcome to the <b>Regi Casino</b>! Tap a table or a cage.', 3000);
+  }
+  function exitCasino() {
+    mode = 'map';
+    document.body.classList.remove('in-casino');
+    $('#casino-hud').classList.add('hidden');
+    closeModal();
+    Music.play(areaTrack(zone)); save(); updateHUD();
+  }
+  function paintCasinoHud() { $('#cas-candy').textContent = '🍭 ' + S.rareCandy; }
+  const cScale = () => clamp(Math.min(innerWidth / 760, innerHeight / 900), 0.5, 1.3) * userZoom;
+  function casinoFrame(dt, t) {
+    // move
+    if (!modalOpen) {
+      let mx = 0, my = 0;
+      if (keys.arrowleft || keys.a) mx -= 1; if (keys.arrowright || keys.d) mx += 1;
+      if (keys.arrowup || keys.w) my -= 1; if (keys.arrowdown || keys.s) my += 1;
+      if (mx || my) ctarget = null;
+      else if (ctarget) { const dx = ctarget.x - CP.x, dy = ctarget.y - CP.y, d = Math.hypot(dx, dy); if (d < 4) ctarget = null; else { mx = dx; my = dy; } }
+      const m = Math.hypot(mx, my);
+      if (m) {
+        const step = Math.min(SPEED * 1.2 * dt, ctarget ? Math.hypot(ctarget.x - CP.x, ctarget.y - CP.y) : 1e9);
+        let nx = clamp(CP.x + mx / m * step, 70, CW - 70), ny = clamp(CP.y + my / m * step, 300, CH - 50);
+        for (const o of COBJ) if (o.kind !== 'exit') { const rr2 = o.kind === 'cage' ? 70 : o.r + 22, d = hyp(nx, ny, o.x, o.y); if (d < rr2) { nx = o.x + (nx - o.x) / d * rr2; ny = o.y + (ny - o.y) / d * rr2; } }
+        CP.x = nx; CP.y = ny; CP.moving = true; CP.walkT += dt; if (Math.abs(mx / m) > 0.2) CP.face = mx > 0 ? 1 : -1;
+      } else { CP.moving = false; CP.walkT = 0; }
+      if (cpending && hyp(CP.x, CP.y, cpending.x, cpending.y) < cpending.r + 90) { const o = cpending; cpending = null; ctarget = null; useCasinoObj(o); }
+    }
+    drawCasinoRoom(t);
+  }
+  function casinoToWorld(sx, sy) { const s = cScale(); return { x: CP.x + (sx - innerWidth / 2) / s, y: CP.y + (sy - innerHeight / 2) / s }; }
+  function casinoTap(e) {
+    const w = casinoToWorld(e.clientX, e.clientY);
+    const o = COBJ.find(o => hyp(w.x, w.y, o.x, o.y - (o.kind === 'cage' ? 20 : 0)) < o.r + 20);
+    if (o) {
+      if (hyp(CP.x, CP.y, o.x, o.y) < o.r + 90) useCasinoObj(o);
+      else { cpending = o; ctarget = { x: o.x, y: o.y + (o.kind === 'exit' ? -30 : o.r + 50) }; }
+      return;
+    }
+    cpending = null; ctarget = { x: clamp(w.x, 70, CW - 70), y: clamp(w.y, 300, CH - 50) };
+  }
+  function useCasinoObj(o) {
+    if (o.kind === 'exit') exitCasino();
+    else if (o.kind === 'roulette') showRoulette();
+    else if (o.kind === 'blackjack') showBlackjack();
+    else showCage(o.i);
+  }
+  function drawCasinoRoom(t) {
+    const cw = innerWidth, ch = innerHeight, s = cScale();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = '#0b0618'; ctx.fillRect(0, 0, cw, ch);
+    ctx.save();
+    ctx.translate(cw / 2, ch / 2); ctx.scale(s, s); ctx.translate(-CP.x, -CP.y);
+    if (!carpet) {
+      carpet = document.createElement('canvas'); carpet.width = 80; carpet.height = 80;
+      const k = carpet.getContext('2d');
+      k.fillStyle = '#7f1d1d'; k.fillRect(0, 0, 80, 80);
+      k.fillStyle = '#991b1b'; k.fillRect(0, 0, 40, 40); k.fillRect(40, 40, 40, 40);
+      k.strokeStyle = 'rgba(242,193,78,.45)'; k.lineWidth = 2;
+      k.beginPath(); k.arc(40, 40, 14, 0, 7); k.stroke(); k.beginPath(); k.moveTo(40, 20); k.lineTo(60, 40); k.lineTo(40, 60); k.lineTo(20, 40); k.closePath(); k.stroke();
+    }
+    ctx.fillStyle = ctx.createPattern(carpet, 'repeat'); ctx.fillRect(40, 120, CW - 80, CH - 150);
+    // walls with neon trim
+    ctx.fillStyle = '#1e1b4b'; ctx.fillRect(0, 0, CW, 120); ctx.fillRect(0, 0, 40, CH); ctx.fillRect(CW - 40, 0, 40, CH);
+    ctx.fillRect(0, CH - 30, 420, 30); ctx.fillRect(580, CH - 30, 420, 30);
+    const neon = ['#f0abfc', '#67e8f9', '#fde047'][Math.floor(t / 600) % 3];
+    ctx.strokeStyle = neon; ctx.lineWidth = 4; ctx.shadowColor = neon; ctx.shadowBlur = 14;
+    ctx.strokeRect(40, 120, CW - 80, CH - 150); ctx.shadowBlur = 0;
+    ctx.font = '900 54px "Trebuchet MS", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = '#f0abfc'; ctx.shadowBlur = 18; ctx.fillStyle = '#f0abfc'; ctx.fillText('🎰 REGI CASINO 🎰', CW / 2, 62); ctx.shadowBlur = 0;
+    // slot machines along the bottom wall (decoration)
+    for (const sx of [100, 170, 240, 310, 690, 760, 830, 900]) {
+      ctx.fillStyle = '#4338ca'; rr(ctx, sx - 26, CH - 110, 52, 72, 8); ctx.fill();
+      ctx.fillStyle = '#fef9c3'; ctx.fillRect(sx - 18, CH - 98, 36, 20);
+      ctx.font = '11px "Segoe UI Emoji", sans-serif';
+      const sym = ['🍒', '🍭', '👑', '7️⃣'];
+      for (let k = 0; k < 3; k++) ctx.fillText(sym[(Math.floor(t / 150) + k + sx) % 4], sx - 11 + k * 11, CH - 88);
+      ctx.fillStyle = (Math.floor(t / 300) + sx) % 2 ? '#facc15' : '#f472b6'; ctx.fillRect(sx - 22, CH - 108, 44, 5);
+    }
+    // tables
+    for (const o of COBJ) {
+      if (o.kind === 'roulette') {
+        ctx.fillStyle = '#78350f'; ctx.beginPath(); ctx.ellipse(o.x, o.y, o.r + 12, o.r * 0.72 + 12, 0, 0, 7); ctx.fill();
+        ctx.fillStyle = '#166534'; ctx.beginPath(); ctx.ellipse(o.x, o.y, o.r, o.r * 0.72, 0, 0, 7); ctx.fill();
+        ctx.save(); ctx.translate(o.x - 40, o.y); ctx.rotate(t / 700);
+        for (let i = 0; i < 18; i++) { ctx.fillStyle = i === 0 ? '#16a34a' : i % 2 ? '#b91c1c' : '#111827'; ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, 36, i * Math.PI / 9, (i + 1) * Math.PI / 9); ctx.fill(); }
+        ctx.fillStyle = '#f2c14e'; ctx.beginPath(); ctx.arc(0, 0, 8, 0, 7); ctx.fill(); ctx.restore();
+        ctx.fillStyle = '#fff'; ctx.font = '800 15px "Trebuchet MS", sans-serif'; ctx.fillText('ROULETTE', o.x + 40, o.y - 12);
+        ctx.font = '20px "Segoe UI Emoji", sans-serif'; ctx.fillText('🍭🍭', o.x + 40, o.y + 16);
+      } else if (o.kind === 'blackjack') {
+        ctx.fillStyle = '#78350f'; ctx.beginPath(); ctx.arc(o.x, o.y - 30, o.r + 12, 0, Math.PI); ctx.fill();
+        ctx.fillStyle = '#166534'; ctx.beginPath(); ctx.arc(o.x, o.y - 30, o.r, 0, Math.PI); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.font = '800 15px "Trebuchet MS", sans-serif'; ctx.fillText('BLACKJACK', o.x, o.y - 6);
+        ctx.font = '11px "Trebuchet MS", sans-serif'; ctx.fillText('PAYS 3 TO 2', o.x, o.y + 12);
+        for (let k = 0; k < 2; k++) { ctx.fillStyle = '#fff'; rr(ctx, o.x - 22 + k * 24, o.y + 24, 20, 28, 3); ctx.fill(); ctx.fillStyle = k ? '#b91c1c' : '#111827'; ctx.font = '800 12px "Trebuchet MS", sans-serif'; ctx.fillText(k ? 'A♥' : 'K♠', o.x - 12 + k * 24, o.y + 38); }
+        // dealer
+        drawPerson({ x: o.x, y: o.y - 72, face: 1, moving: false, walkT: 0 }, { blazer: '#111827', arm: '#1f2937', armBack: '#0b0f19', pack: '#111827', hair: '#1b1b1b', skin: '#d7a27a', tie: '#b91c1c' }, t);
+      } else if (o.kind === 'exit') {
+        ctx.fillStyle = '#f2c14e'; ctx.fillRect(o.x - 80, CH - 34, 160, 8);
+        ctx.fillStyle = '#16a34a'; rr(ctx, o.x - 42, CH - 70, 84, 26, 6); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.font = '900 14px "Trebuchet MS", sans-serif'; ctx.fillText('🚪 EXIT', o.x, CH - 57);
+      }
+    }
+    // cages
+    const near = COBJ.filter(o => o.kind === 'cage').find(o => hyp(CP.x, CP.y, o.x, o.y) < o.r + 90);
+    for (const o of COBJ) if (o.kind === 'cage') {
+      const it = STOCK[o.i], sold = S.casino.sold.includes(o.i);
+      ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(o.x, o.y + 44, 56, 12, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#44403c'; rr(ctx, o.x - 55, o.y - 70, 110, 118, 10); ctx.fill();
+      ctx.fillStyle = it && it.sp.rarity >= 5 ? 'rgba(250,204,21,.18)' : 'rgba(255,255,255,.07)'; ctx.fillRect(o.x - 48, o.y - 62, 96, 100);
+      if (it && !sold) { const im = Art.img(it.sp, it.shiny); if (im.complete && im.naturalWidth) ctx.drawImage(im, o.x - 44, o.y - 58 + Math.sin(t / 400 + o.i) * 3, 88, 88); }
+      else { ctx.fillStyle = '#fca5a5'; ctx.font = '900 18px "Trebuchet MS", sans-serif'; ctx.fillText('SOLD', o.x, o.y - 12); }
+      ctx.strokeStyle = '#d4a017'; ctx.lineWidth = 3;
+      for (let bx = o.x - 48; bx <= o.x + 48; bx += 12) { ctx.beginPath(); ctx.moveTo(bx, o.y - 64); ctx.lineTo(bx, o.y + 40); ctx.stroke(); }
+      ctx.strokeRect(o.x - 52, o.y - 66, 104, 108);
+      if (it && !sold) {
+        ctx.fillStyle = '#f2c14e'; rr(ctx, o.x - 34, o.y + 48, 68, 22, 8); ctx.fill();
+        ctx.fillStyle = '#1e1b4b'; ctx.font = '900 13px "Trebuchet MS", sans-serif'; ctx.fillText('🍭 ' + it.price, o.x, o.y + 60);
+        if (near === o) { ctx.font = '800 13px "Trebuchet MS", sans-serif'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; const nm = (it.shiny ? '✨ ' : '') + it.sp.name; ctx.strokeText(nm, o.x, o.y - 82); ctx.fillStyle = '#fff'; ctx.fillText(nm, o.x, o.y - 82); }
+      }
+    }
+    if (ctarget) { const p = (t / 700) % 1; ctx.strokeStyle = 'rgba(242,193,78,' + (1 - p) + ')'; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(ctarget.x, ctarget.y, 6 + p * 14, (6 + p * 14) * 0.5, 0, 0, 7); ctx.stroke(); }
+    const bc = buddyMon();
+    if (bc) { const bx = CP.x - 40 * CP.face, by = CP.y + 6; drawBuddyAt(byId[bc.sid], bc.shiny, bx, by, CP.face, CP.moving, t, 0); }
+    drawPerson(CP, PLAYER_LOOK, t);
+    if (S.name) nameTag(CP.x, CP.y - 62, S.name, true);
+    ctx.restore();
+  }
+
+  // ---------------- cages ----------------
+  function showCage(i) {
+    const it = STOCK[i]; if (!it) return;
+    const sold = S.casino.sold.includes(i), sp = it.sp, can = S.rareCandy >= it.price;
+    openModal(`<div class="result"><img src="${Art.url(sp, it.shiny)}" alt="">
+      <h2>${it.shiny ? '✨ ' : ''}${sp.name}</h2>
+      <div class="tags">${typeTags(sp)}<span class="rar r${sp.rarity}">${RARITY[sp.rarity].name}</span></div>
+      <p class="sub">CP ${it.cp}${it.shiny ? ' · Shiny!' : ''}</p>
+      ${sold ? '<p class="sub">Already sold today — the cages restock tomorrow.</p>'
+        : `<button class="primary" id="cage-buy" ${can ? '' : 'disabled'}>Buy for 🍭 ${it.price}</button><p class="sub">You have 🍭 ${S.rareCandy} Rare Candy${can ? '' : ' — win more at the tables or at 🕹️ arcades'}.</p>`}
+      <button class="ghost" id="cage-back">Back</button></div>`);
+    $('#cage-back').onclick = () => closeModal();
+    const b = $('#cage-buy');
+    if (b) b.onclick = () => {
+      if (S.rareCandy < it.price || S.casino.sold.includes(i)) return;
+      S.rareCandy -= it.price; S.casino.sold.push(i);
+      S.caught.push({ uid: S.nextUid++, sid: sp.id, cp: it.cp, t: Date.now(), ball: 'magna', shiny: it.shiny });
+      const d = dexEntry(sp.id); d.seen = Math.max(1, d.seen); d.caught++; if (it.shiny) { d.shiny = (d.shiny || 0) + 1; S.shinies++; }
+      addCandy(sp, 3); save(); paintCasinoHud();
+      Music.sfx('catch');
+      openModal(`<div class="result"><span class="newbadge">NEW!</span><img src="${Art.url(sp, it.shiny)}" alt=""><h2>${sp.name} is yours!</h2>
+        <p class="sub">It’s waiting in 🗃️ Caught.</p><button class="primary" id="cage-ok">Awesome!</button></div>`);
+      $('#cage-ok').onclick = () => closeModal();
+    };
+  }
+
+  // ---------------- roulette ----------------
+  const WHEEL = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26];
+  const REDS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
+  const colorOf = n => (n === 0 ? 'green' : REDS.has(n) ? 'red' : 'black');
+  let wheelRot = 0, betAmt = 1;
+  function betRow(id) {
+    return `<div class="bet-row"><button class="ghost" data-b="-5">−5</button><button class="ghost" data-b="-1">−1</button><b id="${id}">🍭 ${betAmt}</b><button class="ghost" data-b="1">+1</button><button class="ghost" data-b="5">+5</button><button class="ghost" data-b="max">Max</button></div>`;
+  }
+  function bindBet(id) {
+    document.querySelectorAll('#modal-body [data-b]').forEach(b => {
+      b.onclick = () => {
+        const v = b.dataset.b;
+        betAmt = v === 'max' ? Math.max(1, Math.min(S.rareCandy, 50)) : clamp(betAmt + +v, 1, 50);
+        $('#' + id).textContent = '🍭 ' + betAmt;
+      };
+    });
+  }
+  function showRoulette() {
+    const seg = 360 / 37;
+    const grad = WHEEL.map((n, i) => `${colorOf(n) === 'green' ? '#16a34a' : colorOf(n) === 'red' ? '#b91c1c' : '#111827'} ${i * seg}deg ${(i + 1) * seg}deg`).join(',');
+    openModal(`<div class="roul">
+      <h2>🎡 Roulette</h2>
+      <div class="wheel-wrap"><div class="wheel" id="rw" style="background:conic-gradient(${grad});transform:rotate(${wheelRot}deg)">
+        ${WHEEL.map((n, i) => `<span style="transform:rotate(${(i + 0.5) * seg}deg) translateY(-104px)">${n}</span>`).join('')}</div>
+        <div class="wheel-hub" id="rw-res">🍭</div><div class="wheel-ptr">▼</div></div>
+      <p class="sub" id="rw-msg">You have 🍭 <b>${S.rareCandy}</b>. Pick your bet, then what to bet on.</p>
+      ${betRow('rb-amt')}
+      <div class="bet-types">
+        <button data-k="red" class="bt red">🔴 Red ×2</button><button data-k="black" class="bt black">⚫ Black ×2</button>
+        <button data-k="odd" class="bt">Odd ×2</button><button data-k="even" class="bt">Even ×2</button>
+        <button data-k="low" class="bt">1–18 ×2</button><button data-k="high" class="bt">19–36 ×2</button>
+        <button data-k="green" class="bt green">🟢 Zero ×36</button>
+        <span class="bt-num"><input id="rb-num" type="number" min="0" max="36" value="7"><button data-k="num" class="bt">Number ×36</button></span>
+      </div>
+      <button class="ghost" id="rw-leave">Leave table</button></div>`);
+    bindBet('rb-amt');
+    $('#rw-leave').onclick = () => closeModal();
+    let spinning = false;
+    document.querySelectorAll('#modal-body [data-k]').forEach(b => {
+      b.onclick = () => {
+        if (spinning) return;
+        const k = b.dataset.k, pickN = clamp(Math.round(+$('#rb-num').value || 0), 0, 36);
+        if (S.rareCandy < betAmt) { $('#rw-msg').innerHTML = 'Not enough 🍭 Rare Candy for that bet. Win more at 🕹️ arcades!'; return; }
+        spinning = true; S.rareCandy -= betAmt; save(); paintCasinoHud();
+        const idx = Math.floor(Math.random() * 37), n = WHEEL[idx];
+        wheelRot += 360 * 5 + ((360 - ((idx + 0.5) * seg) - (wheelRot % 360)) % 360 + 360) % 360;
+        const wheel = $('#rw'); wheel.style.transition = 'transform 3.2s cubic-bezier(.15,.8,.2,1)'; wheel.style.transform = `rotate(${wheelRot}deg)`;
+        $('#rw-res').textContent = '…'; $('#rw-msg').textContent = 'No more bets! Spinning…';
+        Music.sfx('spin');
+        setTimeout(() => {
+          const c = colorOf(n);
+          const win = { red: c === 'red', black: c === 'black', odd: n > 0 && n % 2 === 1, even: n > 0 && n % 2 === 0, low: n >= 1 && n <= 18, high: n >= 19, green: n === 0, num: n === pickN }[k];
+          const mult = k === 'green' || k === 'num' ? 36 : 2, pay = win ? betAmt * mult : 0;
+          S.rareCandy += pay; save(); paintCasinoHud();
+          const hub = $('#rw-res'); if (!hub) return;
+          hub.textContent = n; hub.className = 'wheel-hub ' + c;
+          $('#rw-msg').innerHTML = win ? `🎉 <b>${n} ${c}</b> — you win <b>🍭 ${pay}</b>! Now you have 🍭 ${S.rareCandy}.` : `${n} ${c}. No luck this time. You have 🍭 ${S.rareCandy}.`;
+          Music.sfx(win ? (mult > 2 ? 'rankup' : 'victory') : 'miss');
+          spinning = false;
+        }, 3300);
+      };
+    });
+  }
+
+  // ---------------- blackjack ----------------
+  function showBlackjack() {
+    const SUITS = ['♠', '♥', '♦', '♣'], RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+    let deck = [], me = [], dealer = [], bet = 0, phase = 'bet', note = '';
+    const newDeck = () => { deck = []; for (let k = 0; k < 4; k++) for (const s of SUITS) for (const r of RANKS) deck.push({ r, s }); for (let i = deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]]; } };
+    const draw = () => { if (deck.length < 15) newDeck(); return deck.pop(); };
+    const value = h => { let v = 0, aces = 0; for (const c of h) { if (c.r === 'A') { v += 11; aces++; } else v += ['J', 'Q', 'K'].includes(c.r) ? 10 : +c.r; } while (v > 21 && aces) { v -= 10; aces--; } return v; };
+    const card = (c, hidden) => hidden ? '<span class="card back"></span>' : `<span class="card ${c.s === '♥' || c.s === '♦' ? 'red' : ''}">${c.r}<small>${c.s}</small></span>`;
+    newDeck();
+    function render() {
+      const hide = phase === 'play';
+      openModal(`<div class="bj">
+        <h2>🃏 Blackjack</h2>
+        <div class="bj-hand"><small>Dealer ${hide || !dealer.length ? '' : '· ' + value(dealer)}</small><div>${dealer.map((c, i) => card(c, hide && i === 1)).join('') || '<span class="card empty"></span>'}</div></div>
+        <div class="bj-hand"><small>You ${me.length ? '· ' + value(me) : ''}${bet ? ' · bet 🍭 ' + bet : ''}</small><div>${me.map(c => card(c)).join('') || '<span class="card empty"></span>'}</div></div>
+        <p class="sub" id="bj-msg">${note || `You have 🍭 <b>${S.rareCandy}</b>. Get closer to 21 than the dealer without going over. Blackjack pays 3 to 2.`}</p>
+        ${phase === 'play' ? `<div class="row"><button class="primary" id="bj-hit">Hit</button><button class="primary" id="bj-stand">Stand</button>${me.length === 2 && S.rareCandy >= bet ? '<button class="ghost" id="bj-double">Double</button>' : ''}</div>`
+          : `${betRow('bj-amt')}<div class="row"><button class="primary" id="bj-deal">Deal 🍭 ${betAmt}</button></div>`}
+        <button class="ghost" id="bj-leave">Leave table</button></div>`);
+      $('#bj-leave').onclick = () => closeModal();
+      if (phase === 'play') {
+        $('#bj-hit').onclick = () => { me.push(draw()); Music.sfx('pop'); if (value(me) > 21) settle(); else render(); };
+        $('#bj-stand').onclick = () => dealerPlays();
+        const dbl = $('#bj-double'); if (dbl) dbl.onclick = () => { S.rareCandy -= bet; bet *= 2; paintCasinoHud(); me.push(draw()); if (value(me) > 21) settle(); else dealerPlays(); };
+      } else {
+        bindBet('bj-amt');
+        document.querySelectorAll('#modal-body [data-b]').forEach(b => { const f = b.onclick; b.onclick = () => { f(); const d = $('#bj-deal'); if (d) d.textContent = 'Deal 🍭 ' + betAmt; }; });
+        $('#bj-deal').onclick = () => {
+          if (S.rareCandy < betAmt) { $('#bj-msg').innerHTML = 'Not enough 🍭 Rare Candy for that bet. Win more at 🕹️ arcades!'; return; }
+          bet = betAmt; S.rareCandy -= bet; save(); paintCasinoHud();
+          me = [draw(), draw()]; dealer = [draw(), draw()]; phase = 'play'; note = '';
+          Music.sfx('spin');
+          if (value(me) === 21 || value(dealer) === 21) settle(); else render();
+        };
+      }
+    }
+    function dealerPlays() { while (value(dealer) < 17) dealer.push(draw()); settle(); }
+    function settle() {
+      const p = value(me), d = value(dealer), pBJ = p === 21 && me.length === 2, dBJ = d === 21 && dealer.length === 2;
+      let pay = 0;
+      if (p > 21) note = `Bust with ${p}! The dealer wins.`;
+      else if (pBJ && !dBJ) { pay = bet + Math.floor(bet * 1.5); note = `🎉 BLACKJACK! You win 🍭 ${pay}.`; }
+      else if (dBJ && !pBJ) note = 'Dealer has blackjack. You lose.';
+      else if (d > 21) { pay = bet * 2; note = `Dealer busts with ${d}! You win 🍭 ${pay}.`; }
+      else if (p > d) { pay = bet * 2; note = `${p} beats ${d}! You win 🍭 ${pay}.`; }
+      else if (p === d) { pay = bet; note = `Push at ${p} — your 🍭 ${bet} comes back.`; }
+      else note = `Dealer’s ${d} beats your ${p}.`;
+      S.rareCandy += pay; save(); paintCasinoHud();
+      Music.sfx(pay > bet ? 'victory' : pay === bet ? 'ready' : 'defeat');
+      note += ` You have 🍭 ${S.rareCandy}.`;
+      phase = 'bet'; bet = pay ? 0 : 0;
+      render();
+    }
+    render();
+  }
+
   // ---------------- arenas ----------------
   // Gyms look like Pokémon GO gyms: a glowing team-colored tower with floating rings and the leader's best Regimon on top.
   function drawArena(a, t) {
@@ -1657,6 +2042,7 @@
     for (const st of STOPS) if (Math.abs(st.x - P.x) < hw + 60 && Math.abs(st.y - P.y) < hh + 90) items.push([st.y, () => drawStop(st, t)]);
     for (const s of spawns) items.push([s.y, () => drawSpawn(s, t)]);
     for (const a of ARENAS) if (Math.abs(a.x - P.x) < hw + 80 && Math.abs(a.y - P.y) < hh + 120) items.push([a.y, () => drawArena(a, t)]);
+    if (Math.abs(CASINO.x - P.x) < hw + 200 && Math.abs(CASINO.y - P.y) < hh + 600) items.push([CASINO.y, () => drawCasino(t)]);
     for (const n of npcs) items.push([n.y, () => drawNPC(n, t)]);
     for (const p of onlinePeers) if (p.rx != null && Math.abs(p.rx - P.x) < hw + 100 && Math.abs(p.ry - P.y) < hh + 100) items.push([p.ry, () => drawPeer(p, t)]);
     items.push([P.y, () => drawPlayer(t)]);
@@ -2435,7 +2821,7 @@
     const hash = sha256hex('regimon-gift:' + norm);
     const gift = GIFTS[hash];
     S.redeemed = S.redeemed || [];
-    if (!gift) { toast('🎁 That code doesn’t work.'); return; }
+    if (!gift) { toast(`🎁 That code doesn’t work. Check it for typos — and make sure you have the newest game (you’re on version ${GAME_VERSION}; reload the page to update).`, 5000); return; }
     if (S.redeemed.includes(hash)) {
       if (S.giftPending) { closeModal(); openGift(); } else toast('🎁 You already redeemed this code.');
       return;
@@ -2569,7 +2955,7 @@
       <div class="name-row"><input id="name-input" maxlength="16" placeholder="Pick a trainer name" value="${esc(S.name)}" autocomplete="off"><button class="ghost" id="name-save">Save</button></div>
       <h2 style="font-size:18px">🔐 Account</h2>
       ${accountHTML()}
-      <h2 style="font-size:18px">🎁 Redeem a code</h2>
+      <h2 style="font-size:18px">🎁 Redeem a code <span class="sub">· game version ${GAME_VERSION}</span></h2>
       <div class="name-row"><input id="gift-input" maxlength="32" placeholder="Enter a gift code" autocomplete="off" autocapitalize="characters"><button class="ghost" id="gift-go">Redeem</button></div>
       <h2 style="font-size:18px">🌐 Online</h2>
       <div class="modes">
@@ -2652,6 +3038,7 @@
         <li>✅ <b>Safe & 🧪 Experimental</b> — you start in the best areas (Manhattan, the harbor, Hoboken, downtown Jersey City). Turn on Experimental mode in the 👑 menu to explore the whole map while it's still being finished.</li>
         <li>🚇 <b>Subway & ferry</b> — walk up to a station and tap it to ride to any other station on the map.</li>
         <li>💬 <b>Chat & emotes</b> — tap 💬 to send emotes over your trainer. When you're 🌐 Online you can chat, and tap other trainers to wave, ✨ teleport to them, or ⚔️ duel their real team.</li>
+        <li>🎰 <b>Regi Casino</b> — a giant casino in Times Square. Walk inside, bet 🍭 Rare Candy at roulette and blackjack, and buy rare Regimon from the cages (they restock daily).</li>
         <li>🐾 <b>Buddy</b> — open a Regimon in 🗃️ Caught and tap Make buddy. It follows you around (other trainers see it too), finds 3 🍬 every 1 km, and loves being tapped.</li>
         <li>🕹️ <b>Arcades</b> — play 23 different minigames at arcades around the map to win 🍭 Rare Candy (use it on any Regimon). Each arcade recharges for 30 minutes.</li>
         <li>📜 <b>Quests</b> — finish all eight to battle and catch the Mythic boss. 1 in 10 are shiny!</li>
@@ -2749,6 +3136,8 @@
     if (mode === 'map') {
       if (!modalOpen) update(dt);
       drawMap(now);
+    } else if (mode === 'casino') {
+      casinoFrame(dt, now);
     } else if (C) {
       catchFrame(dt);
     }
@@ -2833,6 +3222,7 @@
       }
       g.font = Math.round(12 + ovView.z) + 'px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
       for (const a of ARENAS) if (vis(a.x, a.y)) g.fillText(S.badges[a.id] ? '🏆' : '⚔️', X(a.x), Y(a.y) - 5);
+      if (vis(CASINO.x, CASINO.y)) { g.font = Math.round(16 + ovView.z * 1.5) + 'px "Segoe UI Emoji", "Apple Color Emoji", sans-serif'; g.fillText('🎰', X(CASINO.x), Y(CASINO.y) - 6); }
       g.fillStyle = '#f2c14e'; g.strokeStyle = '#14204a'; g.lineWidth = 2.5;
       g.beginPath(); g.arc(X(P.x), Y(P.y), 5 + Math.min(3, ovView.z * 0.3), 0, 7); g.fill(); g.stroke();
     }
@@ -2873,6 +3263,7 @@
   }
   $('#btn-map').onclick = showOverview;
   $('#quest-chip').onclick = showQuests;
+  $('#cas-exit').onclick = exitCasino;
   $('#zoom-in').onclick = () => setZoom(userZoom * 1.35);
   $('#zoom-out').onclick = () => setZoom(userZoom / 1.35);
   $('#zoom-lvl').onclick = () => setZoom(1);
