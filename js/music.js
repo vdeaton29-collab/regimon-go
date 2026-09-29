@@ -4,7 +4,7 @@ window.RGMusic = (() => {
   let muted = false;
   try { muted = localStorage.getItem(PREF_KEY) === '1'; } catch (e) { /* ignore */ }
 
-  let ac = null, master, musicBus, sfxBus, noiseBuf;
+  let ac = null, master, musicBus, sfxBus, leadBus, noiseBuf;
   let track = null, wanted = 'map', step = 0, nextTime = 0, timer = null;
 
   const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
@@ -105,6 +105,47 @@ window.RGMusic = (() => {
       bass: ['D2', 'F2', 'G2', 'A2', 'D2', 'C3', 'G2', 'D2', 'D2', 'A2', 'G2', 'A2', 'Bb2', 'C3', 'A2', 'D2'],
       bassPat: [0, 12, 0, 12, 0, 12, 7, 12],
       kick: [0, 2, 4, 6], snare: [2, 6], hat: [1, 3, 5, 7],
+      arp: [0, 3, 7, 12, 7, 3], fill: true,
+    }),
+    // Gym battles — heroic C minor in the same style as the trainer-battle theme.
+    gym: compile({
+      bpm: 170, lead: 'square', leadVol: 0.08, arp: [0, 3, 7, 10, 12, 7], fill: true, harm: -5,
+      melody: `C5 . Eb5 . G5 . C6 .   Bb5 . Ab5 . G5 . Eb5 F5   G5 . . F5 Eb5 . D5 .   D5 . F5 . G5 . . .
+               C5 . Eb5 . G5 . C6 .   D6 . C6 . Bb5 . Ab5 .     G5 . F5 . Eb5 . D5 .   C5 . . . G4 . C5 .
+               Eb5 . D5 . C5 . Bb4 .  C5 . . . G4 . . .         Ab4 . Bb4 . C5 . Eb5 .  D5 . . . G5 . . .
+               C6 . Bb5 . Ab5 . G5 .  F5 . Eb5 . D5 . C5 .      D5 . Eb5 . F5 . D5 .    C5 . . . _ _ _ _`,
+      bass: ['C2', 'Ab2', 'Bb2', 'G2', 'C2', 'Bb2', 'F2', 'C2', 'Ab2', 'C2', 'Ab2', 'G2', 'Ab2', 'F2', 'G2', 'C2'],
+      bassPat: [0, 12, 0, 12, 0, 12, 7, 12],
+      kick: [0, 2, 4, 6], snare: [2, 6], hat: [1, 3, 5, 7],
+    }),
+    // Online duels against real trainers — E minor, fast and heroic.
+    duel: compile({
+      bpm: 174, lead: 'sawtooth', leadVol: 0.055, arp: [0, 7, 12, 15, 12, 7], arpVol: 0.02, fill: true,
+      melody: `E5 . G5 . B5 . E6 .   D6 . B5 . G5 . A5 B5    C6 . . B5 A5 . G5 .    F#5 . A5 . B5 . . .
+               E5 . G5 . B5 . E6 .   F#6 . E6 . D6 . B5 .    C6 . B5 . A5 . F#5 .   E5 . . . B4 . E5 .
+               G5 . F#5 . E5 . D5 .  E5 . . . B4 . . .       C5 . D5 . E5 . G5 .    F#5 . . . B5 . . .
+               E6 . D6 . C6 . B5 .   A5 . G5 . F#5 . E5 .    F#5 . G5 . A5 . F#5 .  E5 . . . _ _ _ _`,
+      bass: ['E2', 'G2', 'A2', 'B2', 'E2', 'D3', 'A2', 'E2', 'E2', 'B2', 'A2', 'B2', 'C3', 'D3', 'B2', 'E2'],
+      bassPat: [0, 12, 0, 12, 0, 12, 7, 12],
+      kick: [0, 2, 3, 4, 6], snare: [2, 6], hat: [0, 1, 2, 3, 4, 5, 6, 7],
+    }),
+    // Riding the subway and exploring the stations — driving G minor.
+    subway: compile({
+      bpm: 160, lead: 'square', leadVol: 0.075, arp: [0, 3, 7, 12], fill: true,
+      melody: `G4 . Bb4 D5 _ G5 . F5   D5 . Bb4 . C5 D5 . .   Eb5 . D5 C5 _ Bb4 . A4   D5 . . . _ _ _ _
+               G4 . Bb4 D5 _ G5 . A5   Bb5 . A5 . G5 . F5 .   Eb5 . F5 G5 _ D5 . C5    G4 . . . _ _ _ _`,
+      bass: ['G2', 'G2', 'Eb2', 'D2', 'G2', 'Bb2', 'C3', 'D2'],
+      bassPat: [0, null, 12, 0, null, 12, 7, null],
+      kick: [0, 3, 4], snare: [2, 6], hat: [0, 1, 2, 3, 4, 5, 6, 7],
+    }),
+    // Legendary and Mythic encounters — dramatic B minor.
+    legend: compile({
+      bpm: 148, lead: 'sawtooth', leadVol: 0.06, arp: [0, 7, 12, 15, 19, 15], arpVol: 0.025, fill: true, harm: -12,
+      melody: `B4 . . . F#5 . . .   D5 . E5 . F#5 . . .   G5 . . . F#5 . E5 .   F#5 . . . . . _ _
+               B4 . . . F#5 . . .   B5 . A5 . F#5 . . .   G5 . A5 . B5 . D6 .   C#6 . . . . . _ _`,
+      bass: ['B1', 'G2', 'E2', 'F#2', 'B1', 'G2', 'E2', 'F#2'],
+      bassPat: [0, 0, 12, 0, 0, 12, 0, 12],
+      kick: [0, 2, 4, 6], snare: [4], hat: [0, 2, 4, 6],
     }),
   };
 
@@ -116,6 +157,11 @@ window.RGMusic = (() => {
     master = ac.createGain(); master.gain.value = muted ? 0 : 0.9; master.connect(ac.destination);
     musicBus = ac.createGain(); musicBus.gain.value = 0.9; musicBus.connect(master);
     sfxBus = ac.createGain(); sfxBus.gain.value = 0.8; sfxBus.connect(master);
+    // the lead melody gets a short echo, which makes the chiptune sound much bigger
+    leadBus = ac.createGain(); leadBus.connect(musicBus);
+    const echo = ac.createDelay(1), fb = ac.createGain(), wet = ac.createGain(), damp = ac.createBiquadFilter();
+    echo.delayTime.value = 0.19; fb.gain.value = 0.3; wet.gain.value = 0.32; damp.type = 'lowpass'; damp.frequency.value = 2600;
+    leadBus.connect(echo); echo.connect(damp); damp.connect(fb); fb.connect(echo); damp.connect(wet); wet.connect(musicBus);
     noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -145,10 +191,18 @@ window.RGMusic = (() => {
   function playStep(t, i, time, dur) {
     const ev = t.events[i];
     if (ev) {
-      tone(mtof(ev.midi), time, ev.len * dur * 0.92, t.lead, t.leadVol, musicBus);
+      tone(mtof(ev.midi), time, ev.len * dur * 0.92, t.lead, t.leadVol, leadBus);
       tone(mtof(ev.midi - 12), time, ev.len * dur * 0.92, 'triangle', t.leadVol * 0.7, musicBus);
+      if (t.harm) tone(mtof(ev.midi + t.harm), time, ev.len * dur * 0.9, 'square', t.leadVol * 0.35, musicBus);
     }
     const bar = Math.floor(i / 8) % t.roots.length, b = i % 8, off = t.bassPat[b];
+    // 16th-note arpeggio over the bar's chord
+    if (t.arp) for (let k = 0; k < 2; k++) {
+      const n = t.roots[bar] + 24 + t.arp[(b * 2 + k) % t.arp.length];
+      tone(mtof(n), time + k * dur / 2, dur * 0.42, 'square', t.arpVol || 0.022, musicBus);
+    }
+    // drum fill on the last bar of each loop
+    if (t.fill && i >= t.len - 4) { noise(time, 0.1, 0.14, musicBus, 'bandpass', 1400 + (i - t.len + 4) * 300); noise(time + dur / 2, 0.08, 0.1, musicBus, 'bandpass', 1600 + (i - t.len + 4) * 300); tone(200 - (i - t.len + 4) * 30, time, 0.14, 'sine', 0.2, musicBus, 70); return; }
     if (off !== null) tone(mtof(t.roots[bar] + off), time, dur * 0.85, 'triangle', 0.2, musicBus);
     if (t.kick.includes(b)) tone(150, time, 0.12, 'sine', 0.35, musicBus, 45);
     if (t.snare.includes(b)) noise(time, 0.12, 0.16, musicBus, 'bandpass', 1800);
@@ -270,6 +324,6 @@ window.RGMusic = (() => {
     if (ac) master.gain.setTargetAtTime(m ? 0 : 0.9, ac.currentTime, 0.05);
   }
 
-  const TRACK_NAMES = { map: 'Upper East Side', park: 'Central Park', city: 'Midtown Nights', jersey: 'Across the Hudson', harbor: 'Harbor Shanty', battle: 'Wild Encounter', fight: 'Trainer Battle', boss: 'Champion Battle' };
+  const TRACK_NAMES = { map: 'Upper East Side', park: 'Central Park', city: 'Midtown Nights', jersey: 'Across the Hudson', harbor: 'Harbor Shanty', battle: 'Wild Encounter', fight: 'Trainer Battle', gym: 'Gym Showdown', duel: 'Online Duel', subway: 'Express Line', legend: 'Legendary Encounter', boss: 'Champion Battle' };
   return { play, unlock, sfx, attack, setMuted, isMuted: () => muted, TRACK_NAMES, current: () => wanted, lengths: () => Object.fromEntries(Object.entries(TRACKS).map(([k, t]) => [k, [t.len, t.len / 8, t.roots.length]])) };
 })();

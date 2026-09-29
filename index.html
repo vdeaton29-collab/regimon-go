@@ -30,6 +30,13 @@
   <button id="btn-sound" aria-label="Turn music off">🔊</button>
   <button id="mode-chip" class="pill light" aria-label="Play mode">🎮 Explore</button>
   <button id="online-chip" class="pill light" aria-label="Online trainers">🔒 Solo</button>
+  <button id="btn-chat" class="hidden" aria-label="Chat">💬</button>
+  <div id="chat" class="hidden">
+    <div class="chat-head"><b>💬 Trainer chat</b><button id="chat-close" aria-label="Close chat">✕</button></div>
+    <div id="chat-log"></div>
+    <div id="chat-emotes"></div>
+    <div class="chat-row"><input id="chat-input" maxlength="120" placeholder="Say something nice…" autocomplete="off"><button id="chat-send">Send</button></div>
+  </div>
 
   <div id="nearby"><div class="nearby-title">Nearby</div><div id="nearby-list"></div></div>
 
@@ -121,6 +128,7 @@
   <script src="js/art.js"></script>
   <script src="js/music.js"></script>
   <script src="js/online.js"></script>
+  <script src="js/cloud.js"></script>
   <script src="js/battle.js"></script>
   <script src="js/game.js"></script>
 </body>

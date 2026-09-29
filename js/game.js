@@ -806,7 +806,7 @@
       return;
     }
     for (const p of onlinePeers) {
-      if (p.rx != null && hyp(w.x, w.y, p.rx, p.ry - 25) < 32) { Online.wave(p.id); Music.sfx('ready'); toast(`👋 You waved at <b>${esc(p.name)}</b>!`); return; }
+      if (p.rx != null && hyp(w.x, w.y, p.rx, p.ry - 25) < 32) { peerMenu(p.id); return; }
     }
     for (const n of npcs) {
       if (hyp(w.x, w.y, n.x, n.y - 25) < 30) {
@@ -862,6 +862,7 @@
   }
   mapCv.addEventListener('wheel', e => { e.preventDefault(); setZoom(userZoom * Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
   addEventListener('keydown', e => {
+    if (e.target && e.target.closest && e.target.closest('input, textarea, select')) return;
     keys[e.key.toLowerCase()] = true;
     if (e.key === 'Escape') { if (modalOpen) closeModal(); else if (C && C.state === 'idle') closeCatch(false); }
   });
@@ -1206,6 +1207,45 @@
   function drawPeer(p, t) {
     drawPerson({ x: p.rx, y: p.ry, face: p.face, moving: p.moving, walkT: p.walkT }, lookFor(p.id), t);
     nameTag(p.rx, p.ry - 62, `🌐 ${p.name} · Lv ${p.lvl}`);
+    drawBubble(p.id, p.rx, p.ry - 80);
+  }
+  const bubbles = new Map();   // trainer id → { text, emote, at }
+  function wrapText(text, maxW) {
+    const words = text.split(' '), lines = [];
+    let line = '';
+    for (const w of words) {
+      const tryLine = line ? line + ' ' + w : w;
+      if (ctx.measureText(tryLine).width > maxW && line) { lines.push(line); line = w; } else line = tryLine;
+      if (lines.length === 3) break;
+    }
+    if (line && lines.length < 3) lines.push(line);
+    return lines;
+  }
+  function drawBubble(id, x, y) {
+    const b = bubbles.get(id);
+    if (!b) return;
+    const age = Date.now() - b.at, life = b.emote ? 3500 : 6000;
+    if (age > life) { bubbles.delete(id); return; }
+    const a = Math.min(1, (life - age) / 400), pop = Math.min(1, age / 150);
+    ctx.save(); ctx.globalAlpha = a; ctx.translate(x, y); ctx.scale(pop, pop);
+    if (b.emote) {
+      const big = b.emote === 'GG';
+      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#14204a'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(0, -22 - Math.sin(age / 180) * 3, 22, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-6, -3); ctx.lineTo(0, 6); ctx.lineTo(6, -3); ctx.fill();
+      ctx.font = big ? '900 17px "Trebuchet MS", sans-serif' : '26px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+      ctx.fillStyle = '#b91c1c'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(b.emote, 0, -21 - Math.sin(age / 180) * 3);
+    } else {
+      ctx.font = '700 12px "Trebuchet MS", sans-serif';
+      const lines = wrapText(b.text, 170), w = Math.max(...lines.map(l => ctx.measureText(l).width)) + 18, h = lines.length * 15 + 10;
+      ctx.fillStyle = 'rgba(255,255,255,.97)'; ctx.strokeStyle = '#14204a'; ctx.lineWidth = 2;
+      rr(ctx, -w / 2, -h - 8, w, h, 10); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-6, -9); ctx.lineTo(0, 0); ctx.lineTo(6, -9); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#14204a'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      lines.forEach((l, i) => ctx.fillText(l, 0, -h - 8 + 12 + i * 15));
+    }
+    ctx.restore();
   }
 
   function drawPlayer(t) {
@@ -1215,6 +1255,7 @@
     ctx.restore();
     drawPerson(P, PLAYER_LOOK, t);
     if (S.name) nameTag(P.x, P.y - 62, S.name, true);
+    drawBubble(S.pid, P.x, P.y - 80);
   }
 
   // ---------------- wandering student trainers ----------------
@@ -1351,7 +1392,7 @@
     const first = !S.badges[a.id];
     Battle.challenge({
       name: a.leader, title: `${a.title} · ${a.name}`, quote: a.quote, team: a.team, color: a.color, icon: first ? '⚔️' : '🏆',
-      badge: !first, tier: a.tier, music: a.tier >= 10 ? 'boss' : 'fight', levelMult: 1, levelAdd: a.tier, smart: clamp(0.62 + a.tier * 0.045, 0, 1),
+      badge: !first, tier: a.tier, music: a.tier >= 10 ? 'boss' : 'gym', levelMult: 1, levelAdd: a.tier, smart: clamp(0.62 + a.tier * 0.045, 0, 1),
       winQuote: 'Train harder and come back. The arena will be here.',
       onResult: win => {
         const out = [];
@@ -1656,7 +1697,7 @@
   function openCatch(spawn) {
     mode = 'catch'; target = null; holding = false;
     const e = dexEntry(spawn.sp.id); e.seen++;
-    Music.play('battle'); Music.sfx('encounter');
+    Music.play(C.sp.rarity >= 5 ? 'legend' : 'battle'); Music.sfx('encounter');
     const L = catchLayout();
     C = {
       spawn, sp: spawn.sp, cp: spawn.cp, L, bg: buildCatchBG(spawn.zone, L),
@@ -2201,6 +2242,8 @@
       </div>
       <h2 style="font-size:18px">🪪 Trainer name</h2>
       <div class="name-row"><input id="name-input" maxlength="16" placeholder="Pick a trainer name" value="${esc(S.name)}" autocomplete="off"><button class="ghost" id="name-save">Save</button></div>
+      <h2 style="font-size:18px">🔐 Account</h2>
+      ${accountHTML()}
       <h2 style="font-size:18px">🌐 Online</h2>
       <div class="modes">
         <button class="mode ${S.online ? '' : 'on'}" id="online-off"><b>🔒 Solo</b><small>Play on your own.</small></button>
@@ -2236,6 +2279,7 @@
         <button class="ghost danger" id="bag-reset">Reset progress</button>
       </div>`);
     $('#name-save').onclick = () => { setName($('#name-input').value); showBag(); };
+    bindAccount();
     $('#online-on').onclick = () => { setOnline(true); showBag(); };
     $('#online-off').onclick = () => { setOnline(false); showBag(); };
     $('#music-select').onchange = e => { S.music = e.target.value; save(); Music.play(S.music === 'auto' ? areaTrack(zone) : S.music); };
@@ -2278,6 +2322,8 @@
         <li>🔷 <b>Stops</b> — tap the spinning diamonds at landmarks for Regi Balls and Bagels.</li>
         <li>🗺️ <b>Explore NYC</b> — every neighborhood has its own Regimon: Skyscraper types in Midtown, Wall Street types downtown, Harbor types by the Statue of Liberty, Jersey types across the Hudson. Open the map to fast-travel anywhere.</li>
         <li>✅ <b>Safe & 🧪 Experimental</b> — you start in the best areas (Manhattan, the harbor, Hoboken, downtown Jersey City). Turn on Experimental mode in the 👑 menu to explore the whole map while it's still being finished.</li>
+        <li>🚇 <b>Subway & ferry</b> — walk up to a station and tap it to ride to any other station on the map.</li>
+        <li>💬 <b>Chat & emotes</b> — tap 💬 to send emotes over your trainer. When you're 🌐 Online you can chat, and tap other trainers to wave, ✨ teleport to them, or ⚔️ duel their real team.</li>
         <li>⬆️ <b>Evolving</b> — every catch gives 🍬 candy for that Regimon's family. Open 🗃️ Caught, tap a Regimon and press Evolve when you have enough candy. Transfer extras for +1 🍬.</li>
         <li>🌟 <b>Rarities</b> — Common, Uncommon, Rare, Legendary, <b>Mythic</b> and <b>Celestial</b>. The rarest appear under a beam of light. About 1 in 64 is a ✨ shiny.</li>
         <li>⚔️ <b>Battle</b> — hold to fast-attack and build ⚡ energy, fire special attacks, time the meter, and use your 2 🛡️ shields. Beat all 15 arena leaders, from the Great Lawn to Liberty Island.</li>
@@ -2458,7 +2504,7 @@
   function areaTrack(z) {
     if (S.music !== 'auto') return S.music;
     return z === 'park' || z === 'water' ? 'park' : z === 'midtown' || z === 'music' || z === 'finance' || z === 'chinatown' ? 'city'
-      : z === 'nj' ? 'jersey' : z === 'harbor' || z === 'river' ? 'harbor' : 'map';
+      : z === 'nj' ? 'jersey' : z === 'harbor' || z === 'river' ? 'harbor' : z === 'subway' ? 'subway' : 'map';
   }
   function setName(raw) {
     const n = Online.cleanName(raw);
@@ -2483,9 +2529,10 @@
           ...(S.mode === 'live' ? {} : { x: Math.round(P.x), y: Math.round(P.y) }) }),
         onStatus: paintOnline,
         onWave: from => { Music.sfx('ready'); toast(`👋 <b>${esc(from)}</b> waved at you!`, 3000); },
+        onChat, onDuel,
       });
     } else Online.stop();
-    paintOnline();
+    paintOnline(); paintChat();
   }
   function showOnline() {
     if (!S.online) { showBag(); return; }
@@ -2494,12 +2541,314 @@
       <p class="sub">${Online.isConnected() ? `${list.length} other trainer${list.length === 1 ? '' : 's'} playing right now` : 'Connecting…'}</p>
       <div class="peers">${list.map(p => `<div class="peer"><span class="peer-av" style="background:${lookFor(p.id).blazer}">${esc(p.name[0] || '?')}</span>
         <span class="grow"><b>${esc(p.name)}</b><small>Lv ${p.lvl} · ${esc(p.hood || 'Somewhere in NYC')}${p.live ? ' · 🛰️ Live' : ''}</small></span>
-        <button class="ghost" data-wave="${esc(p.id)}">👋 Wave</button></div>`).join('') || '<p class="sub" style="text-align:center;padding:20px 0">Nobody else is online right now. Invite a friend!</p>'}</div>
+        <button class="ghost" data-peer="${esc(p.id)}">Meet ›</button></div>`).join('') || '<p class="sub" style="text-align:center;padding:20px 0">Nobody else is online right now. Invite a friend!</p>'}</div>
       <div class="row"><button class="ghost danger" id="go-solo">Go solo</button></div>`);
-    document.querySelectorAll('[data-wave]').forEach(el => { el.onclick = () => { Online.wave(el.dataset.wave); el.textContent = '✓ Waved'; el.disabled = true; }; });
+    document.querySelectorAll('[data-peer]').forEach(el => { el.onclick = () => peerMenu(el.dataset.peer, showOnline); });
     $('#go-solo').onclick = () => { setOnline(false); closeModal(); };
   }
   $('#online-chip').onclick = showOnline;
+
+  // ---------------- accounts: save progress with a username and password ----------------
+  const ACCT_KEY = 'regimon-account';
+  let acct = null, lastSynced = '', syncing = false;
+  try { acct = JSON.parse(localStorage.getItem(ACCT_KEY) || 'null'); } catch (e) { acct = null; }
+  const cloudState = () => { const c = { ...S }; delete c.cooldowns; return c; };
+  function accountHTML() {
+    if (!RGCloud.available()) return '<p class="sub">Accounts need a secure connection — open the game on the GitHub Pages site.</p>';
+    if (acct) {
+      const when = acct.savedAt ? new Date(acct.savedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'not yet';
+      return `<div class="acct-box"><div>✅ Signed in as <b>${esc(acct.user)}</b><small>Last saved: ${when} · saves automatically every couple of minutes</small></div>
+        <div class="row"><button class="primary" id="acct-save">☁️ Save now</button><button class="ghost" id="acct-out">Log out</button></div></div>`;
+    }
+    return `<div class="acct-box">
+      <p class="sub">Create an account to back up your progress and load it on any device.</p>
+      <input id="acct-user" maxlength="24" placeholder="Username" autocomplete="username" value="${esc(S.name || '')}">
+      <input id="acct-pass" type="password" maxlength="64" placeholder="Password (at least 8 characters)" autocomplete="current-password">
+      <div class="row"><button class="primary" id="acct-new">✨ Create account</button><button class="ghost" id="acct-in">Log in</button></div>
+      <p class="sub fine-note">Your save is encrypted on this device with your password before it is uploaded, and the password never leaves your device. There is no password reset — if you forget it, the cloud save can't be recovered. Don't reuse a password from another site.</p>
+    </div>`;
+  }
+  function setAcct(a) { acct = a; try { a ? localStorage.setItem(ACCT_KEY, JSON.stringify(a)) : localStorage.removeItem(ACCT_KEY); } catch (e) { /* ignore */ } }
+  async function readForm() {
+    const user = ($('#acct-user').value || '').trim(), pass = $('#acct-pass').value || '';
+    if (user.length < 3) { toast('🔐 Pick a username with at least 3 characters.'); return null; }
+    if (pass.length < 8) { toast('🔐 Your password needs at least 8 characters.'); return null; }
+    toast('🔐 Checking your account…', 12000);
+    const d = await RGCloud.derive(user, pass);
+    return { user: Online.cleanName(user), raw: d.raw, topic: d.topic };
+  }
+  async function cloudSave(quiet) {
+    if (!acct || syncing) return false;
+    const snap = JSON.stringify(cloudState());
+    if (quiet && snap === lastSynced) return true;
+    syncing = true;
+    try {
+      acct.savedAt = await RGCloud.save(acct, JSON.parse(snap));
+      lastSynced = snap; setAcct(acct);
+      if (!quiet) toast('☁️ Progress saved to your account!');
+      return true;
+    } catch (e) {
+      if (!quiet) toast('⚠️ Couldn\'t reach the save server. Your progress is still saved on this device — try again soon.', 3500);
+      return false;
+    } finally { syncing = false; }
+  }
+  function bindAccount() {
+    const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+    on('#acct-save', async () => { await cloudSave(false); if (modalOpen) showBag(); });
+    on('#acct-out', () => { setAcct(null); toast('👋 Logged out. Your progress stays on this device.'); showBag(); });
+    on('#acct-new', async () => {
+      const a = await readForm(); if (!a) return;
+      try {
+        if (await RGCloud.exists(a)) { toast('🔐 That account already exists — press <b>Log in</b> instead.', 3500); return; }
+        setAcct(a);
+        if (await cloudSave(false)) { if (!S.name) setName(a.user); showBag(); } else setAcct(null);
+      } catch (e) { toast('⚠️ Couldn\'t reach the save server. Try again in a moment.', 3500); }
+    });
+    on('#acct-in', async () => {
+      const a = await readForm(); if (!a) return;
+      let got;
+      try { got = await RGCloud.load(a); } catch (e) { toast('⚠️ Wrong password, or the save server can\'t be reached.', 3500); return; }
+      if (!got) { toast('🔐 No account found with that username and password.', 3500); return; }
+      const s = got.state;
+      if (!s || !Array.isArray(s.caught) || typeof s.level !== 'number') { toast('⚠️ That save looks damaged.'); return; }
+      openModal(`<div class="result"><div class="bigemoji">☁️</div><h2>Load ${esc(a.user)}'s progress?</h2>
+        <p class="sub">Cloud save: Level ${s.level | 0} · ${s.caught.length} Regimon caught<br>This device: Level ${S.level} · ${S.caught.length} Regimon caught</p>
+        <p class="sub">Loading replaces the progress on this device.</p>
+        <div class="row"><button class="ghost" id="acct-keep">Keep this device's</button><button class="primary" id="acct-load">Load cloud save</button></div></div>`);
+      $('#acct-load').onclick = () => {
+        a.savedAt = got.savedAt; setAcct(a);
+        S = Object.assign(freshState(), s, { cooldowns: {} });
+        save(); location.reload();
+      };
+      $('#acct-keep').onclick = async () => { a.savedAt = got.savedAt; setAcct(a); closeModal(); await cloudSave(false); };
+    });
+  }
+  // Players who already have progress get a reminder to back it up (once per day).
+  try {
+    if (!acct && S.caught.length && RGCloud.available() && Date.now() - (+localStorage.getItem('regimon-acct-nudge') || 0) > 86400000) {
+      localStorage.setItem('regimon-acct-nudge', Date.now());
+      setTimeout(() => toast(`☁️ Keep your ${S.caught.length} Regimon safe! Create an account in the 👑 menu to save your progress.`, 5000), 4000);
+    }
+  } catch (e) { /* ignore */ }
+  // quiet background backups while signed in
+  setInterval(() => { if (acct && mode === 'map') cloudSave(true); }, 120000);
+  addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && acct) cloudSave(true); });
+
+  // ---------------- chat & emotes ----------------
+  const chatLog = [];
+  let chatOpen = false, unread = 0;
+  function pushChat(entry) {
+    chatLog.push(entry);
+    if (chatLog.length > 60) chatLog.shift();
+    if (chatOpen) renderChat(); else if (!entry.mine) { unread++; paintChat(); }
+  }
+  function onChat(m) {
+    if ((S.muted || []).includes(m.from)) return;
+    bubbles.set(m.from, { text: m.text, emote: m.emote, at: Date.now() });
+    pushChat({ from: m.from, name: m.name, text: m.text, emote: m.emote, at: Date.now() });
+  }
+  function paintChat() {
+    const btn = $('#btn-chat');
+    btn.classList.remove('hidden');
+    btn.innerHTML = '💬' + (unread ? `<b>${unread > 9 ? '9+' : unread}</b>` : '');
+    $('#chat').classList.toggle('hidden', !chatOpen);
+    $('#chat').classList.toggle('solo', !S.online);
+  }
+  function renderChat() {
+    const log = $('#chat-log');
+    log.innerHTML = !S.online ? '<p class="sub">Tap an emote to show it over your trainer. Go 🌐 Online (tap the Solo chip) to chat with other trainers.</p>' : chatLog.length ? chatLog.map(c => `<div class="msg ${c.mine ? 'mine' : ''}"><b style="color:${c.mine ? '#f2c14e' : lookFor(c.from).blazer}" data-peer="${esc(c.from)}">${esc(c.name)}</b>${c.emote ? `<span class="emo">${esc(c.emote)}</span>` : esc(c.text)}</div>`).join('')
+      : '<p class="sub">Say hi to other trainers! Be kind, and never share personal info like your real name, school, address or phone number.</p>';
+    log.scrollTop = log.scrollHeight;
+    log.querySelectorAll('[data-peer]').forEach(el => { if (el.dataset.peer !== S.pid) el.onclick = () => peerMenu(el.dataset.peer); });
+  }
+  function toggleChat(open = !chatOpen) {
+    chatOpen = open; unread = 0; paintChat();
+    if (open) { renderChat(); if (S.online) setTimeout(() => $('#chat-input').focus(), 50); }
+  }
+  function sendChat() {
+    const inp = $('#chat-input'), raw = inp.value;
+    if (!raw.trim()) return;
+    if (!Online.isConnected()) { toast('🌐 Still connecting…'); return; }
+    const sent = Online.chat(raw);
+    if (!sent) { toast('⏳ Slow down a little!'); return; }
+    inp.value = '';
+    bubbles.set(S.pid, { text: sent, at: Date.now() });
+    pushChat({ from: S.pid, name: S.name, text: sent, at: Date.now(), mine: true });
+  }
+  function sendEmote(i) {
+    const e = Online.EMOTES[i];
+    if (S.online && Online.isConnected() && !Online.emote(i)) return;
+    bubbles.set(S.pid, { emote: e, at: Date.now() });
+    if (S.online) pushChat({ from: S.pid, name: S.name, emote: e, at: Date.now(), mine: true });
+    Music.sfx('ready');
+  }
+  $('#chat-emotes').innerHTML = Online.EMOTES.map((e, i) => `<button data-emote="${i}">${e}</button>`).join('');
+  document.querySelectorAll('#chat-emotes [data-emote]').forEach(el => { el.onclick = () => sendEmote(+el.dataset.emote); });
+  $('#btn-chat').onclick = () => toggleChat();
+  paintChat();
+  $('#chat-close').onclick = () => toggleChat(false);
+  $('#chat-send').onclick = sendChat;
+  $('#chat-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); if (e.key === 'Escape') toggleChat(false); });
+
+  // ---------------- meeting other trainers: wave, teleport, duel ----------------
+  function peerMenu(pid, back) {
+    const p = Online.get(pid);
+    if (!p) { toast('That trainer went offline.'); return; }
+    const muted = (S.muted || []).includes(pid);
+    const canTp = p.x != null && S.mode !== 'live';
+    openModal(`<div class="peer-card">
+      <span class="peer-av big" style="background:${lookFor(p.id).blazer}">${esc(p.name[0] || '?')}</span>
+      <h2>${esc(p.name)}</h2>
+      <p class="sub">Lv ${p.lvl} · ${esc(p.hood || 'Somewhere in NYC')}${p.live ? ' · 🛰️ Live GPS' : ''}</p>
+      <div class="modes">
+        <button class="mode" id="pm-wave"><b>👋 Wave</b><small>Say hi.</small></button>
+        <button class="mode" id="pm-duel"><b>⚔️ Duel</b><small>Battle their real team.</small></button>
+        <button class="mode" id="pm-tp" ${canTp ? '' : 'disabled'}><b>✨ Teleport</b><small>${p.x == null ? 'They are playing with Live GPS, so their location is private.' : S.mode === 'live' ? 'Switch to 🎮 Explore mode to teleport.' : 'Jump right next to them.'}</small></button>
+        <button class="mode" id="pm-mute"><b>${muted ? '🔈 Unmute' : '🔇 Mute'}</b><small>${muted ? 'See their messages again.' : 'Hide their chat and duel invites.'}</small></button>
+      </div>
+      ${back ? '<div class="row"><button class="ghost" id="pm-back">← Back</button></div>' : ''}
+    </div>`);
+    if (back) $('#pm-back').onclick = back;
+    $('#pm-wave').onclick = () => { Online.wave(pid); Music.sfx('ready'); toast(`👋 You waved at <b>${esc(p.name)}</b>!`); closeModal(); };
+    $('#pm-tp').onclick = () => teleportTo(pid);
+    $('#pm-duel').onclick = () => inviteDuel(pid);
+    $('#pm-mute').onclick = () => {
+      S.muted = muted ? (S.muted || []).filter(x => x !== pid) : [...(S.muted || []), pid].slice(-200);
+      save(); closeModal(); toast(muted ? `🔈 Unmuted ${esc(p.name)}` : `🔇 Muted ${esc(p.name)}`);
+    };
+  }
+  function teleportTo(pid) {
+    const p = Online.get(pid);
+    if (!p || p.x == null || S.mode === 'live') return;
+    if (!isSafe(p.x, p.y)) { closeModal(); safeBlocked(); return; }
+    closeModal();
+    const ov = document.createElement('div');
+    ov.id = 'warp';
+    document.body.appendChild(ov);
+    Music.sfx('charge');
+    setTimeout(() => {
+      P.x = clamp(p.x + 45, 20, W - 20); P.y = clamp(p.y + 10, 20, H - 20); target = null; P.travel = false; holding = false;
+      spawns = []; npcs = []; seedSpawns(); S.px = P.x; S.py = P.y; save();
+    }, 450);
+    setTimeout(() => { ov.remove(); Music.sfx('levelup'); toast(`✨ Teleported to <b>${esc(p.name)}</b>!`); }, 1000);
+  }
+
+  // Duels: both trainers pick a team and swap them. Each player then battles the other's real team
+  // (the other trainer's moves are played by the AI, since the free public server is too slow for move-by-move sync).
+  // Whoever wins their battle with more HP left wins the duel.
+  let duel = null;
+  const DUEL_TIMEOUT = 45000;
+  function teamMsg(entries) { return entries.slice(0, 3).map(c => [c.sid, c.cp, c.shiny ? 1 : 0]); }
+  function readTeam(t) {
+    if (!Array.isArray(t) || !t.length || t.length > 3) return null;
+    const out = [];
+    for (const m of t) {
+      if (!Array.isArray(m) || !byId[m[0]]) return null;
+      const cp = Math.round(+m[1]);
+      if (!(cp >= 10 && cp <= 6000)) return null;
+      out.push({ sid: +m[0], cp, shiny: !!m[2] });
+    }
+    return out;
+  }
+  function duelFoe(name, team, extra) {
+    return Object.assign({
+      name, title: 'Online duel', quote: 'Let’s see whose team is stronger!', team: team.map(m => m.sid), levels: team.map(m => Battle.levelFromCP(m.cp)),
+      shinies: team.map(m => m.shiny), color: '#7c3aed', icon: '🌐', tier: 4, levelMult: 1, levelAdd: 0, smart: 0.9, skill: 0.92, music: 'duel',
+    }, extra);
+  }
+  function inviteDuel(pid) {
+    const p = Online.get(pid);
+    if (!p) return;
+    if (duel) { toast('⚔️ You already have a duel going.'); return; }
+    closeModal();
+    Battle.challenge({ name: p.name, title: 'Pick your duel team', quote: 'Your team will face theirs.', team: [], color: '#7c3aed', icon: '🌐',
+      onPick: team => {
+        const d = Math.random().toString(36).slice(2, 10);
+        duel = { id: d, pid, name: p.name, mine: team, role: 'host', timer: setTimeout(() => { if (duel && duel.id === d && !duel.theirs) { duel = null; closeModal(); toast(`⌛ ${esc(p.name)} didn't answer.`); } }, DUEL_TIMEOUT) };
+        Online.duel(pid, { k: 'inv', d, l: S.level, team: teamMsg(team) });
+        openModal(`<div class="result"><div class="bigemoji">⚔️</div><h2>Duel invite sent</h2><p class="sub">Waiting for <b>${esc(p.name)}</b> to accept…</p>
+          <button class="ghost" id="duel-cancel">Cancel</button></div>`);
+        $('#duel-cancel').onclick = () => { Online.duel(pid, { k: 'cancel', d }); clearTimeout(duel.timer); duel = null; closeModal(); };
+      } });
+  }
+  function onDuel(m) {
+    if ((S.muted || []).includes(m.from) || typeof m.d !== 'string' || m.d.length > 12) return;
+    const name = Online.cleanName(m.n);
+    if (m.k === 'inv') {
+      const team = readTeam(m.team);
+      if (!team) return;
+      if (duel || mode !== 'map' || modalOpen || Battle.isActive()) { Online.duel(m.from, { k: 'dec', d: m.d, busy: 1 }); return; }
+      duel = { id: m.d, pid: m.from, name, theirs: team, role: 'guest', timer: setTimeout(() => { if (duel && duel.id === m.d && !duel.mine) { duel = null; closeModal(); } }, DUEL_TIMEOUT) };
+      Music.sfx('encounter');
+      openModal(`<div class="result"><div class="bigemoji">⚔️</div><h2>${esc(name)} challenges you!</h2>
+        <p class="sub">Lv ${Math.max(1, Math.min(999, m.l | 0))} trainer · Online duel</p>
+        <div class="ch-team">${team.map(t => `<img src="${Art.url(byId[t.sid], t.shiny)}" alt="" title="${byId[t.sid].name} · CP ${t.cp}">`).join('')}</div>
+        <div class="row"><button class="ghost" id="duel-no">Decline</button><button class="primary" id="duel-yes">⚔️ Accept</button></div></div>`, () => {
+          if (duel && duel.id === m.d && !duel.mine && !duel.picking) { Online.duel(m.from, { k: 'dec', d: m.d }); clearTimeout(duel.timer); duel = null; }
+        });
+      $('#duel-no').onclick = () => closeModal();
+      $('#duel-yes').onclick = () => {
+        duel.picking = true; clearTimeout(duel.timer);
+        closeModal();
+        Battle.challenge(duelFoe(name, team, { onPick: mine => {
+          if (!duel || duel.id !== m.d) return;
+          duel.mine = mine;
+          Online.duel(m.from, { k: 'acc', d: m.d, team: teamMsg(mine) });
+          fightDuel();
+        } }));
+      };
+    } else if (!duel || duel.id !== m.d || duel.pid !== m.from) {
+      return;
+    } else if (m.k === 'acc' && duel.role === 'host' && !duel.theirs) {
+      const team = readTeam(m.team);
+      if (!team) return;
+      clearTimeout(duel.timer);
+      duel.theirs = team;
+      closeModal();
+      fightDuel();
+    } else if (m.k === 'dec' || m.k === 'cancel') {
+      if (duel.fighting) return;
+      clearTimeout(duel.timer); duel = null; closeModal();
+      toast(m.k === 'cancel' ? `${esc(name)} cancelled the duel.` : m.busy ? `${esc(name)} is busy right now.` : `${esc(name)} declined the duel.`);
+    } else if (m.k === 'res' && duel.fighting) {
+      duel.them = { win: !!m.win, hp: Math.max(0, Math.min(1, +m.hp || 0)) };
+      finishDuel();
+    }
+  }
+  function fightDuel() {
+    const dd = duel;
+    dd.fighting = true;
+    toast(`⚔️ Duel with <b>${esc(dd.name)}</b>! Beat their team with as much HP left as you can.`, 3500);
+    Battle.start(duelFoe(dd.name, dd.theirs, {
+      winQuote: 'GG! Rematch any time.',
+      onResult: (win, st) => {
+        dd.me = { win, hp: win ? st.hpLeft : 0 };
+        Online.duel(dd.pid, { k: 'res', d: dd.id, win, hp: +dd.me.hp.toFixed(3) });
+        dd.timer = setTimeout(() => { if (duel === dd) { dd.them = dd.them || { win: false, hp: 0, gone: true }; finishDuel(); } }, 120000);
+        setTimeout(finishDuel, 2500);
+        return [dd.them ? '' : `⏳ Waiting for ${esc(dd.name)} to finish their battle…`].filter(Boolean);
+      },
+    }), dd.mine);
+  }
+  function finishDuel() {
+    const dd = duel;
+    if (!dd || !dd.me || !dd.them || dd.done || mode !== 'map' || Battle.isActive()) return;
+    dd.done = true; clearTimeout(dd.timer); duel = null;
+    const a = dd.me, b = dd.them;
+    const score = r => (r.win ? 1 + r.hp : 0);
+    const res = score(a) > score(b) ? 'win' : score(a) < score(b) ? 'lose' : 'draw';
+    if (res === 'win') { addXP(400); S.items.honors += 2; S.duelW = (S.duelW || 0) + 1; } else if (res === 'lose') { addXP(100); S.duelL = (S.duelL || 0) + 1; } else addXP(200);
+    save();
+    Music.sfx(res === 'win' ? 'rankup' : res === 'lose' ? 'defeat' : 'ready');
+    const line = r => (r.gone ? 'left the duel' : r.win ? `won with ${Math.round(r.hp * 100)}% HP left` : 'lost their battle');
+    openModal(`<div class="result"><div class="bigemoji">${res === 'win' ? '🏆' : res === 'lose' ? '😤' : '🤝'}</div>
+      <h2>${res === 'win' ? 'You won the duel!' : res === 'lose' ? `${esc(dd.name)} won the duel` : 'It’s a draw!'}</h2>
+      <p class="sub">You ${line(a).replace('their', 'your')} · ${esc(dd.name)} ${line(b)}</p>
+      <div class="xpgain">${res === 'win' ? '+400 XP · +2 Honors Balls' : res === 'lose' ? '+100 XP' : '+200 XP'}</div>
+      <button class="primary" id="duel-ok">OK</button></div>`);
+    $('#duel-ok').onclick = () => closeModal();
+  }
+  setInterval(() => { if (duel && duel.me && duel.them) finishDuel(); }, 1000);
   setInterval(() => { if (S.online) paintOnline(); }, 3000);
 
   // Offline support: cache the game files so it keeps working without internet (on the GitHub Pages site).

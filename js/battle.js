@@ -371,7 +371,7 @@ window.RGBattle = (() => {
       $('#ch-go').onclick = () => {
         const team = picked.map(uid => S.caught.find(c => c.uid === uid)).filter(Boolean);
         G.closeModal();
-        start(foe, team);
+        if (foe.onPick) foe.onPick(team); else start(foe, team);
       };
     };
     render(0);
@@ -381,7 +381,9 @@ window.RGBattle = (() => {
     if (foe.skill == null) foe.skill = clamp(0.55 + foe.smart * 0.45, 0.5, 1);   // how well the AI times its special attacks
     const myTeam = entries.map(c => makeMon(G.byId[c.sid], levelFromCP(c.cp), c));
     const avg = myTeam.reduce((s, m) => s + m.level, 0) / myTeam.length;
-    const foeTeam = foe.team.map((id, i) => makeMon(G.byId[id], Math.max(4, Math.round(avg * foe.levelMult + foe.levelAdd + i)), null));
+    // Duels pass the other player's real levels; AI trainers scale to your team.
+    const foeTeam = foe.team.map((id, i) => makeMon(G.byId[id], foe.levels ? foe.levels[i] : Math.max(4, Math.round(avg * foe.levelMult + foe.levelAdd + i)),
+      foe.shinies ? { shiny: !!foe.shinies[i] } : null));
     const side = (team, ai, name) => ({ team, i: 0, shields: 2, cd: 0.4, swCd: 0, ai, name, react: 0, switches: 0, fainting: false, ready: [false, false] });
     B = { foe, sides: [side(myTeam, false, 'You'), side(foeTeam, true, foe.name)], paused: true, over: false, t: 0, holding: false, tap: false, queued: null, used: new Set([myTeam[0]]), ui: {} };
     const el = $('#battle');
@@ -779,7 +781,8 @@ window.RGBattle = (() => {
       const gain = Math.round((win ? 12 : 4) + b.foe.tier * (win ? 4 : 1));
       m.entry.cp += gain; boosts.push(`${m.sp.name} +${gain} CP`);
     }
-    const rewards = b.foe.onResult ? b.foe.onResult(win) : [];
+    const mine = b.sides[0].team, hpLeft = mine.reduce((s, m) => s + Math.max(0, m.hp), 0) / mine.reduce((s, m) => s + m.maxHp, 0);
+    const rewards = b.foe.onResult ? b.foe.onResult(win, { hpLeft: forfeit ? 0 : hpLeft, time: b.t, forfeit: !!forfeit }) : [];
     msg(win ? `You defeated ${b.foe.name}!` : forfeit ? 'You left the battle.' : `You were defeated by ${b.foe.name}.`);
     setTimeout(() => {
       G.openModal(`<div class="result">
@@ -800,5 +803,5 @@ window.RGBattle = (() => {
     }, 1100);
   }
 
-  return { init, challenge, levelFromCP, movesFor, isActive: () => !!B, EFFECT_TEXT };
+  return { init, challenge, start, levelFromCP, movesFor, isActive: () => !!B, EFFECT_TEXT };
 })();

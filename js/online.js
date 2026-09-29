@@ -2,6 +2,8 @@
 // Uses a tiny MQTT 3.1.1 client over WebSocket and the free public HiveMQ broker. Every player
 // publishes a small presence message every 2 seconds; everyone subscribes to everyone's presence.
 // What is shared: trainer name, level, neighborhood, and (in Explore mode only) the in-game position.
+// Chat, emotes and duel invites go through the same broker. Everything received is treated as untrusted:
+// names and messages are cleaned, length-limited, rate-limited and HTML-escaped by the game before display.
 window.RGOnline = (() => {
   const BROKER = 'wss://broker.hivemq.com:8884/mqtt';
   const ROOT = 'regimongo/v1';
@@ -20,6 +22,19 @@ window.RGOnline = (() => {
   function publish(topic, obj) { send(packet(0x30, [...str(topic), ...enc.encode(JSON.stringify(obj))])); }
   function subscribe(topic) { const n = pid++ & 0xffff; send(packet(0x82, [n >> 8, n & 255, ...str(topic), 0])); }
 
+  // Chat: short, filtered messages; emotes are picked from a fixed list so only an index is sent.
+  const EMOTES = ['👋', '😂', '🔥', '😎', '🎉', '💪', '❤️', '😭', '🤔', '😡', '🏆', 'GG'];
+  const BAD = /\b(f+u+c+k+\w*|sh[i1]+t+\w*|b[i1]+t+c+h+\w*|a+s+s+h+o+l+e+\w*|d[i1]+c+k+(s|head|heads)?|c+u+n+t+\w*|p+u+s+s+y+\w*|n+[i1]+g+\w*|f+a+g+\w*|r+e+t+a+r+d+\w*|wh+o+r+e+\w*|s+l+u+t+\w*|d+a+m+n+|b+a+s+t+a+r+d+\w*|p+[o0]+r+n+\w*)\b/gi;
+  const cleanText = s => String(s || '').replace(/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, '').replace(/\s+/g, ' ').trim().slice(0, 120)
+    .replace(BAD, w => w[0] + '*'.repeat(w.length - 1));
+  let lastChat = 0;
+  const recent = new Map();   // sender id → timestamps of their recent messages
+  function flood(from) {
+    const now = Date.now(), list = (recent.get(from) || []).filter(t => now - t < 10000);
+    list.push(now); recent.set(from, list);
+    if (recent.size > 500) recent.clear();
+    return list.length > 6;
+  }
   const cleanName = s => String(s || '').replace(/[^\p{L}\p{N} _.\-']/gu, '').trim().slice(0, 16) || 'Trainer';
   const num = (v, lo, hi) => (typeof v === 'number' && isFinite(v) && v >= lo && v <= hi ? v : null);
 
@@ -76,6 +91,8 @@ window.RGOnline = (() => {
       connected = true; retryDelay = 2000;
       subscribe(`${ROOT}/p/+`);
       subscribe(`${ROOT}/wave/${id}`);
+      subscribe(`${ROOT}/chat`);
+      subscribe(`${ROOT}/duel/${id}`);
       clearInterval(pingTimer); pingTimer = setInterval(() => send(new Uint8Array([0xc0, 0])), 30000);
       clearInterval(pubTimer); pubTimer = setInterval(sendPresence, 2000);
       sendPresence();
@@ -86,6 +103,8 @@ window.RGOnline = (() => {
       let msg;
       try { msg = JSON.parse(dec.decode(body.subarray(2 + tl))); } catch (e) { return; }
       if (!msg || typeof msg !== 'object') return;
+      if (topic === `${ROOT}/chat`) { onChat(msg); return; }
+      if (topic.startsWith(`${ROOT}/duel/`)) { if (typeof msg.from === 'string' && msg.from !== id && msg.from.length <= 40 && !flood(msg.from)) hooks.onDuel && hooks.onDuel(msg); return; }
       if (topic.startsWith(`${ROOT}/wave/`)) { if (typeof msg.from === 'string' && msg.from !== id) hooks.onWave(cleanName(msg.n)); return; }
       onPresence(msg);
     }
@@ -113,7 +132,29 @@ window.RGOnline = (() => {
     for (const [k, p] of peers) if (now - p.t > STALE_MS) peers.delete(k);
     return [...peers.values()];
   }
+  function onChat(m) {
+    if (typeof m.from !== 'string' || m.from.length > 40 || m.from === id || flood(m.from)) return;
+    const e = Number.isInteger(m.e) && m.e >= 0 && m.e < EMOTES.length ? m.e : null;
+    const text = e == null ? cleanText(m.t) : '';
+    if (e == null && !text) return;
+    hooks.onChat && hooks.onChat({ from: m.from, name: cleanName(m.n), text, emote: e == null ? null : EMOTES[e] });
+  }
+  // Returns the cleaned text that was sent, or null when sending too fast.
+  function chat(text) {
+    const t = cleanText(text);
+    if (!t || !connected || Date.now() - lastChat < 1500) return null;
+    lastChat = Date.now();
+    publish(`${ROOT}/chat`, { from: id, n: hooks.getState().n, t });
+    return t;
+  }
+  function emote(i) {
+    if (!connected || Date.now() - lastChat < 800) return false;
+    lastChat = Date.now();
+    publish(`${ROOT}/chat`, { from: id, n: hooks.getState().n, e: i });
+    return true;
+  }
+  function duel(peerId, msg) { if (connected && typeof peerId === 'string') publish(`${ROOT}/duel/${peerId}`, { ...msg, from: id, n: hooks.getState().n }); }
   function wave(peerId) { if (connected) publish(`${ROOT}/wave/${peerId}`, { from: id, n: hooks.getState().n }); }
 
-  return { start, stop, list, wave, isOn: () => wantOnline, isConnected: () => connected, cleanName };
+  return { start, stop, list, wave, chat, emote, duel, EMOTES, isOn: () => wantOnline, isConnected: () => connected, cleanName, cleanText, get: pid => peers.get(pid) };
 })();

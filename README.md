@@ -25,7 +25,12 @@ You start in **Safe mode**, which covers the most polished areas: all of Manhatt
 
 - **Trainer name** — pick one when you start (or in the 👑 menu). It shows above your player.
 - **🌐 Online mode** — opt in from the 👑 menu to see other trainers on the map in real time, with their names and levels, and tap them to wave 👋. The online button shows how many people are playing. Online shares your name, level and neighborhood through a public server; your map position is shared only in Explore mode, and **your real location is never sent in Live GPS mode**. (Online works on the GitHub Pages site.)
-- **🎵 Music** — eight chiptune tracks: Upper East Side, Central Park, Midtown Nights, Across the Hudson, Harbor Shanty, Wild Encounter, Trainer Battle and Champion Battle. On Auto, the soundtrack changes with the neighborhood; top arena leaders and high-rank league matches get the Champion theme. Pick a favorite in the 👑 menu.
+- **🎵 Music** — twelve chiptune tracks with echo, arpeggios and drum fills: Upper East Side, Central Park, Midtown Nights, Across the Hudson, Harbor Shanty, Express Line (subway), Wild Encounter, Legendary Encounter, Trainer Battle, Gym Showdown, Online Duel and Champion Battle. On Auto, the soundtrack changes with the neighborhood. Pick a favorite in the 👑 menu.
+- **💬 Chat & emotes** — tap 💬 to pop emotes over your trainer; when online, chat with everyone (messages are filtered, rate-limited and can be muted per player).
+- **✨ Teleport & ⚔️ Duels** — tap another trainer to wave, teleport next to them (only to players in Explore mode), or duel: both trainers pick a team, each battles the other's real team, and whoever wins with more HP left takes the duel.
+- **🔐 Accounts** — create a username and password in the 👑 menu to back up your progress and load it on any device. The save is encrypted in the browser with a key made from your password (PBKDF2 + AES-GCM) and stored on three public MQTT brokers; the password never leaves your device and can't be reset.
+- **🚇 Subway & ferry** — tap a station to ride to any other station.
+- **⬆️ Evolution** — 312 Regimon: 50 new three-stage families plus evolved forms of the originals. Catches give family candy; evolve from the 🗃️ Caught screen.
 
 ## The map
 
