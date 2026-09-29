@@ -17,7 +17,7 @@
 
   const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const START = GEO.toXY(40.7789, -73.9596);   // the front steps of Regis on 84th Street
-  const STOPS = GEO.LANDMARKS.map(l => ({ id: slug(l.name), name: l.name, icon: l.icon, blurb: l.blurb, ...GEO.toXY(l.lat, l.lon) }));
+  const STOPS = GEO.LANDMARKS.map(l => ({ id: slug(l.name), name: l.name, icon: l.icon, blurb: l.blurb, transit: l.zone === 'subway' ? (l.icon === '⛴️' ? 'ferry' : 'subway') : null, ...GEO.toXY(l.lat, l.lon) }));
   for (const a of ARENAS) Object.assign(a, GEO.toXY(a.lat, a.lon));
 
   // ---------------- save ----------------
@@ -824,7 +824,7 @@
       }
     }
     for (const st of STOPS) {
-      if (hyp(w.x, w.y, st.x, st.y - 38) < 34) { tapStop(st); return; }
+      if (hyp(w.x, w.y, st.x, st.y - 44 - (st.open || 0) * 14) < 36) { tapStop(st); return; }
     }
     if (S.mode === 'live') {
       if (!GPS.fix) toast('🛰️ Waiting for your GPS location…');
@@ -868,9 +868,74 @@
   addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
   addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 
+  // ---------------- subway & ferry ----------------
+  const TRANSIT = { subway: { ico: '🚇', name: 'Subway', verb: 'Ride the subway', line: 'Stand clear of the closing doors, please!' },
+    ferry: { ico: '⛴️', name: 'Ferry', verb: 'Take the ferry', line: 'All aboard! Next stop across the water.' } };
+  function stationMenu(st) {
+    const T = TRANSIT[st.transit];
+    const cd = (S.cooldowns[st.id] || 0) > Date.now();
+    openModal(`<div class="station">
+      <div class="st-sign ${st.transit}">${T.ico} <b>${esc(st.name)}</b></div>
+      <p class="sub">${esc(st.blurb || '')}</p>
+      <div class="modes">
+        <button class="mode" id="st-ride"><b>${T.ico} ${T.verb}</b><small>Travel to any ${T.name.toLowerCase()} station on the map.</small></button>
+        <button class="mode" id="st-spin" ${cd ? 'disabled' : ''}><b>🔷 Spin the stop</b><small>${cd ? 'Recharging…' : 'Collect balls and bagels.'}</small></button>
+      </div>
+    </div>`);
+    $('#st-ride').onclick = () => rideMenu(st);
+    $('#st-spin').onclick = () => { closeModal(); spinStop(st); };
+  }
+  function rideMenu(from, q = '') {
+    if (S.mode === 'live') { toast('🛰️ In Live GPS mode you travel for real! Switch to 🎮 Explore mode to ride.'); return; }
+    const T = TRANSIT[from.transit];
+    const all = STOPS.filter(s => s.transit === from.transit && s !== from && hyp(s.x, s.y, from.x, from.y) > 250);
+    const list = all.map(s => ({ s, open: isSafe(s.x, s.y), hood: placeAt(s.x, s.y).name, km: hyp(s.x, s.y, from.x, from.y) * METERS_PER_PX / 1000 }))
+      .filter(o => !q || (o.s.name + ' ' + o.hood).toLowerCase().includes(q.toLowerCase()))
+      .sort((a, b) => b.open - a.open || a.hood.localeCompare(b.hood) || a.km - b.km);
+    openModal(`<div class="station">
+      <div class="st-sign ${from.transit}">${T.ico} <b>${T.name} from ${esc(from.name)}</b></div>
+      <input id="st-q" class="st-q" placeholder="Search stations or neighborhoods" value="${esc(q)}" autocomplete="off">
+      <div class="st-list">${list.map(o => `<button class="st-row ${o.open ? '' : 'locked'}" data-id="${esc(o.s.id)}">
+        <span class="st-ico">${o.s.icon}</span><span class="grow"><b>${esc(o.s.name)}</b><small>${esc(o.hood)}${o.open ? '' : ' · 🧪 Experimental'}</small></span><span class="st-km">${o.km.toFixed(1)} km</span></button>`).join('') || '<p class="sub">No stations found.</p>'}</div>
+      <div class="row"><button class="ghost" id="st-back">← Back</button></div>
+    </div>`);
+    const qi = $('#st-q');
+    qi.oninput = () => { const v = qi.value, pos = qi.selectionStart; rideMenu(from, v); const n = $('#st-q'); n.focus(); n.setSelectionRange(pos, pos); };
+    $('#st-back').onclick = () => stationMenu(from);
+    document.querySelectorAll('#modal-body .st-row').forEach(el => {
+      el.onclick = () => {
+        const to = STOPS.find(s => s.id === el.dataset.id);
+        if (!isSafe(to.x, to.y)) { safeBlocked(); return; }
+        ride(from, to);
+      };
+    });
+  }
+  function ride(from, to) {
+    const T = TRANSIT[from.transit];
+    closeModal();
+    const ov = document.createElement('div');
+    ov.id = 'ride'; ov.className = from.transit;
+    ov.innerHTML = `<div class="ride-tunnel"></div><div class="ride-vehicle">${from.transit === 'ferry' ? '⛴️' : '🚇'}</div>
+      <div class="ride-text"><small>${T.line}</small><b>Next stop: ${esc(to.name)}</b></div>`;
+    document.body.appendChild(ov);
+    Music.sfx('charge');
+    setTimeout(() => {
+      P.x = to.x; P.y = to.y + 40; target = null; P.travel = false; holding = false;
+      spawns = []; npcs = []; seedSpawns();
+      S.px = P.x; S.py = P.y; addXP(20); save();
+    }, 1300);
+    setTimeout(() => { ov.classList.add('out'); Music.sfx('levelup'); }, 2300);
+    setTimeout(() => { ov.remove(); toast(`${T.ico} Arrived at <b>${esc(to.name)}</b>`, 2500); }, 2800);
+  }
+
   function tapStop(st) {
     const d = hyp(P.x, P.y, st.x, st.y);
-    if (d > RANGE) { toast(`${st.icon} <b>${st.name}</b><br>Walk closer to spin it.`); return; }
+    if (d > RANGE) { toast(`${st.icon} <b>${st.name}</b><br>Walk closer to ${st.transit ? 'enter the station' : 'spin it'}.`); return; }
+    if (st.transit) { stationMenu(st); return; }
+    spinStop(st);
+  }
+  if (location.hash === '#debug') window.__rg = { tapStop, STOPS, P: () => P };
+  function spinStop(st) {
     const cd = (S.cooldowns[st.id] || 0) - Date.now();
     if (cd > 0) { toast(`${st.icon} <b>${st.name}</b> is recharging (${Math.ceil(cd / 1000)}s)`); return; }
     const n = 3 + Math.floor(Math.random() * 3), got = {};
@@ -958,32 +1023,63 @@
     if (saveTimer <= 0) { saveTimer = 3; S.px = P.x; S.py = P.y; save(); }
   }
 
+  // Stops look like Pokémon GO stops: a spinning cube on a pole far away, a photo disc that opens up when you're close.
   function drawStop(st, t) {
     const cd = (S.cooldowns[st.id] || 0) > Date.now();
     const inR = hyp(P.x, P.y, st.x, st.y) <= RANGE;
-    ctx.fillStyle = 'rgba(0,0,0,.2)';
-    ctx.beginPath(); ctx.ellipse(st.x, st.y, 13, 5, 0, 0, 7); ctx.fill();
-    ctx.strokeStyle = '#5d6a80'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(st.x, st.y); ctx.lineTo(st.x, st.y - 26); ctx.stroke();
-    const cy = st.y - 40 + Math.sin(t / 400 + st.x) * 2;
-    if (inR && !cd) {
-      const p = (t / 1000) % 1;
-      ctx.strokeStyle = `rgba(47,157,244,${0.6 * (1 - p)})`; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(st.x, cy, 16 + p * 16, 0, 7); ctx.stroke();
+    st.open = clamp((st.open || 0) + (inR ? 0.08 : -0.08), 0, 1);
+    const o = st.open, col = cd ? '#b36bd9' : '#2f9df4', dark = cd ? '#6b2d8f' : '#0b5ea8';
+    // glowing ground ring
+    ctx.fillStyle = 'rgba(0,0,0,.18)';
+    ctx.beginPath(); ctx.ellipse(st.x, st.y, 15 + o * 6, 6 + o * 2, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = cd ? 'rgba(179,107,217,.7)' : 'rgba(47,157,244,.75)'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.ellipse(st.x, st.y, 12 + o * 8, 4.5 + o * 3, 0, 0, 7); ctx.stroke();
+    // pole
+    const g1 = ctx.createLinearGradient(st.x - 2, 0, st.x + 2, 0);
+    g1.addColorStop(0, '#dfe7f2'); g1.addColorStop(1, '#5d6a80');
+    ctx.fillStyle = g1; ctx.fillRect(st.x - 2, st.y - 30 - o * 6, 4, 30 + o * 6);
+    const cy = st.y - 44 - o * 14 + Math.sin(t / 400 + st.x) * 2;
+    if (o < 0.99) {
+      // spinning cube
+      const a = t / 700 + st.y, s = 11 * (1 - o * 0.6);
+      ctx.save(); ctx.translate(st.x, cy); ctx.globalAlpha = 1 - o;
+      const c1 = Math.cos(a), s1 = Math.sin(a);
+      const pts = [[s * c1, s * s1 * 0.5], [-s * s1, s * c1 * 0.5], [-s * c1, -s * s1 * 0.5], [s * s1, -s * c1 * 0.5]];
+      ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 1.2;
+      for (let i = 0; i < 4; i++) {
+        const p = pts[i], q = pts[(i + 1) % 4];
+        if ((p[1] + q[1]) / 2 < 0) continue;
+        ctx.beginPath(); ctx.moveTo(p[0], p[1] - s); ctx.lineTo(q[0], q[1] - s); ctx.lineTo(q[0], q[1] + s); ctx.lineTo(p[0], p[1] + s); ctx.closePath();
+        ctx.fillStyle = i % 2 ? col : dark; ctx.fill(); ctx.stroke();
+      }
+      ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1] - s) : ctx.moveTo(p[0], p[1] - s))); ctx.closePath();
+      ctx.fillStyle = cd ? '#e2c2f5' : '#9fd3ff'; ctx.fill(); ctx.stroke();
+      ctx.restore();
+      ctx.font = '11px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.globalAlpha = 1 - o; ctx.fillText(st.icon, st.x, cy - 22); ctx.globalAlpha = 1;
     }
-    ctx.save(); ctx.translate(st.x, cy);
-    ctx.scale(0.35 + 0.65 * Math.abs(Math.cos(t / 600 + st.y)), 1);
-    ctx.beginPath(); ctx.moveTo(0, -17); ctx.lineTo(14, 0); ctx.lineTo(0, 17); ctx.lineTo(-14, 0); ctx.closePath();
-    ctx.fillStyle = cd ? '#b36bd9' : '#2f9df4'; ctx.fill();
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.5; ctx.stroke();
-    ctx.restore();
-    ctx.font = '13px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(st.icon, st.x, cy + 1);
-    if (inR) {
-      ctx.font = '700 12px "Trebuchet MS", sans-serif';
-      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.strokeText(st.name, st.x, st.y + 14);
-      ctx.fillStyle = '#14204a'; ctx.fillText(st.name, st.x, st.y + 14);
+    if (o > 0.01) {
+      // the photo disc: a white medallion with the landmark in the middle and a colored rim, turning slowly
+      const r = 20 * o, turn = Math.cos(t / 900 + st.x) * 0.25 + 0.75;
+      ctx.save(); ctx.translate(st.x, cy); ctx.scale(turn, 1);
+      const p = (t / 1100) % 1;
+      if (!cd) { ctx.strokeStyle = 'rgba(47,157,244,' + (0.6 * (1 - p)) + ')'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, r + 4 + p * 18, 0, 7); ctx.stroke(); }
+      ctx.shadowColor = col; ctx.shadowBlur = 14;
+      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(0, 0, r + 4, 0, 7); ctx.fill();
+      ctx.shadowBlur = 0;
+      const g2 = ctx.createRadialGradient(-r * 0.3, -r * 0.3, 1, 0, 0, r);
+      g2.addColorStop(0, '#ffffff'); g2.addColorStop(1, cd ? '#eadcf5' : '#d8ecff');
+      ctx.fillStyle = g2; ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, r + 4, 0, 7); ctx.stroke();
+      ctx.font = Math.max(1, Math.round(22 * o)) + 'px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(st.icon, 0, 1);
+      ctx.restore();
+      ctx.font = '700 12px "Trebuchet MS", sans-serif'; ctx.textAlign = 'center';
+      ctx.globalAlpha = o;
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.strokeText(st.name, st.x, st.y + 16);
+      ctx.fillStyle = '#14204a'; ctx.fillText(st.name, st.x, st.y + 16);
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -1183,28 +1279,71 @@
   }
 
   // ---------------- arenas ----------------
+  // Gyms look like Pokémon GO gyms: a glowing team-colored tower with floating rings and the leader's best Regimon on top.
   function drawArena(a, t) {
-    const won = !!S.badges[a.id], inR = hyp(P.x, P.y, a.x, a.y) <= RANGE;
-    ctx.fillStyle = 'rgba(0,0,0,.22)';
-    ctx.beginPath(); ctx.ellipse(a.x, a.y, 30, 11, 0, 0, 7); ctx.fill();
-    ctx.fillStyle = '#e7e2d6'; ctx.beginPath(); ctx.ellipse(a.x, a.y - 3, 26, 9, 0, 0, 7); ctx.fill();
-    ctx.fillStyle = '#9aa1ad'; ctx.fillRect(a.x - 9, a.y - 52, 18, 50);
-    ctx.fillStyle = '#c3c8d1'; ctx.fillRect(a.x - 9, a.y - 52, 6, 50);
-    const top = a.y - 60 + Math.sin(t / 500 + a.x) * 2;
+    const won = !!S.badges[a.id], inR = hyp(P.x, P.y, a.x, a.y) <= RANGE, col = a.color;
+    const light = Art.shade(col, 0.45), dark = Art.shade(col, -0.45);
+    ctx.save(); ctx.translate(a.x, a.y); ctx.scale(1.4, 1.4); ctx.translate(-a.x, -a.y);
+    // glowing base plate
+    ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.beginPath(); ctx.ellipse(a.x, a.y + 2, 42, 15, 0, 0, 7); ctx.fill();
+    const gb = ctx.createRadialGradient(a.x, a.y, 4, a.x, a.y, 40);
+    gb.addColorStop(0, light); gb.addColorStop(0.7, col); gb.addColorStop(1, dark);
+    ctx.fillStyle = gb; ctx.beginPath(); ctx.ellipse(a.x, a.y - 2, 38, 13, 0, 0, 7); ctx.fill();
+    ctx.save(); ctx.setLineDash([8, 6]); ctx.lineDashOffset = -t / 40;
+    ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(a.x, a.y - 2, 31, 10, 0, 0, 7); ctx.stroke(); ctx.restore();
+    // light beam when you're in range
+    if (inR) {
+      const gl = ctx.createLinearGradient(0, a.y - 180, 0, a.y);
+      gl.addColorStop(0, 'rgba(255,255,255,0)'); gl.addColorStop(1, 'rgba(255,255,255,.35)');
+      ctx.fillStyle = gl; ctx.beginPath(); ctx.moveTo(a.x - 30, a.y - 2); ctx.lineTo(a.x - 14, a.y - 180); ctx.lineTo(a.x + 14, a.y - 180); ctx.lineTo(a.x + 30, a.y - 2); ctx.fill();
+    }
+    // tapered tower: two tiers with a lit strip in the team color
+    const tower = (w0, w1, y0, y1) => {
+      const gt = ctx.createLinearGradient(a.x - w0, 0, a.x + w0, 0);
+      gt.addColorStop(0, '#f1f3f7'); gt.addColorStop(0.45, '#c9ced8'); gt.addColorStop(1, '#6b7280');
+      ctx.fillStyle = gt; ctx.beginPath(); ctx.moveTo(a.x - w0, y0); ctx.lineTo(a.x - w1, y1); ctx.lineTo(a.x + w1, y1); ctx.lineTo(a.x + w0, y0); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(40,45,60,.35)'; ctx.lineWidth = 1; ctx.stroke();
+    };
+    tower(20, 14, a.y - 4, a.y - 40);
+    tower(13, 9, a.y - 40, a.y - 74);
+    ctx.fillStyle = col; ctx.globalAlpha = 0.75 + 0.25 * Math.sin(t / 300);
+    ctx.fillRect(a.x - 3, a.y - 70, 6, 62); ctx.globalAlpha = 1;
+    ctx.fillStyle = dark; ctx.beginPath(); ctx.ellipse(a.x, a.y - 40, 16, 5, 0, 0, 7); ctx.fill();
+    // floating rings rising around the tower
+    for (let i = 0; i < 3; i++) {
+      const ph = (t / 1800 + i / 3) % 1, ry = a.y - 20 - ph * 60, rr = 26 - ph * 8;
+      ctx.strokeStyle = 'rgba(255,255,255,' + (0.8 * Math.sin(ph * Math.PI)) + ')'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.ellipse(a.x, ry, rr, rr * 0.3, 0, 0, 7); ctx.stroke();
+    }
+    // top platform
+    const top = a.y - 78;
+    ctx.shadowColor = col; ctx.shadowBlur = 18;
+    ctx.fillStyle = dark; ctx.beginPath(); ctx.ellipse(a.x, top + 4, 30, 11, 0, 0, 7); ctx.fill();
+    ctx.shadowBlur = 0;
+    const gp = ctx.createLinearGradient(0, top - 10, 0, top + 10);
+    gp.addColorStop(0, light); gp.addColorStop(1, col);
+    ctx.fillStyle = gp; ctx.beginPath(); ctx.ellipse(a.x, top, 30, 11, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.5; ctx.stroke();
+    // the leader's best Regimon standing on top
+    const ace = byId[a.team[a.team.length - 1]], img = ace && Art.img(ace);
+    const bob = Math.sin(t / 450 + a.x) * 3, sz = 58;
+    if (img && img.complete && img.naturalWidth) ctx.drawImage(img, a.x - sz / 2, top - sz + 6 + bob, sz, sz);
+    // chip: difficulty tier, or a trophy once beaten
+    const chipY = top - sz - 4 + bob;
+    ctx.fillStyle = won ? '#f2c14e' : 'rgba(20,32,74,.85)';
+    ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(a.x - 22, chipY - 10, 44, 20, 10); else ctx.rect(a.x - 22, chipY - 10, 44, 20); ctx.fill();
+    ctx.fillStyle = won ? '#14204a' : '#fff';
+    ctx.font = '800 11px "Trebuchet MS", "Segoe UI Emoji", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(won ? '🏆 WON' : '⚔️ ' + a.tier, a.x, chipY + 1);
     if (inR) {
       const p = (t / 900) % 1;
-      ctx.strokeStyle = `rgba(242,193,78,${0.7 * (1 - p)})`; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.ellipse(a.x, top, 26 + p * 20, (26 + p * 20) * 0.45, 0, 0, 7); ctx.stroke();
+      ctx.strokeStyle = 'rgba(242,193,78,' + (0.7 * (1 - p)) + ')'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.ellipse(a.x, a.y - 2, 40 + p * 26, (40 + p * 26) * 0.36, 0, 0, 7); ctx.stroke();
     }
-    ctx.fillStyle = a.color; ctx.beginPath(); ctx.ellipse(a.x, top, 26, 11, 0, 0, 7); ctx.fill();
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.5; ctx.stroke();
-    ctx.font = '22px "Segoe UI Emoji", "Apple Color Emoji", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(won ? '🏆' : '⚔️', a.x, top - 16);
-    if (inR) {
-      ctx.font = '700 12px "Trebuchet MS", sans-serif';
-      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.strokeText(a.name, a.x, a.y + 16);
-      ctx.fillStyle = '#14204a'; ctx.fillText(a.name, a.x, a.y + 16);
-    }
+    ctx.font = '800 13px "Trebuchet MS", sans-serif'; ctx.textAlign = 'center';
+    ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(255,255,255,.95)'; ctx.strokeText(a.name, a.x, a.y + 24);
+    ctx.fillStyle = dark; ctx.fillText(a.name, a.x, a.y + 24);
+    ctx.restore();
   }
 
   // ---------------- battles ----------------
@@ -1296,7 +1435,7 @@
     drawPuffs();
     // depth-sorted drawables
     const items = [];
-    for (const st of STOPS) items.push([st.y, () => drawStop(st, t)]);
+    for (const st of STOPS) if (Math.abs(st.x - P.x) < hw + 60 && Math.abs(st.y - P.y) < hh + 90) items.push([st.y, () => drawStop(st, t)]);
     for (const s of spawns) items.push([s.y, () => drawSpawn(s, t)]);
     for (const a of ARENAS) if (Math.abs(a.x - P.x) < hw + 80 && Math.abs(a.y - P.y) < hh + 120) items.push([a.y, () => drawArena(a, t)]);
     for (const n of npcs) items.push([n.y, () => drawNPC(n, t)]);
