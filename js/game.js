@@ -824,7 +824,7 @@
       }
     }
     for (const st of STOPS) {
-      if (hyp(w.x, w.y, st.x, st.y - 44 - (st.open || 0) * 14) < 36) { tapStop(st); return; }
+      if (st.transit ? Math.abs(w.x - st.x) < 90 && w.y > st.y - 95 && w.y < st.y + 20 : hyp(w.x, w.y, st.x, st.y - 44 - (st.open || 0) * 14) < 36) { tapStop(st); return; }
     }
     if (S.mode === 'live') {
       if (!GPS.fix) toast('🛰️ Waiting for your GPS location…');
@@ -935,7 +935,6 @@
     if (st.transit) { stationMenu(st); return; }
     spinStop(st);
   }
-  if (location.hash === '#debug') window.__rg = { tapStop, STOPS, P: () => P };
   function spinStop(st) {
     const cd = (S.cooldowns[st.id] || 0) - Date.now();
     if (cd > 0) { toast(`${st.icon} <b>${st.name}</b> is recharging (${Math.ceil(cd / 1000)}s)`); return; }
@@ -1025,7 +1024,58 @@
   }
 
   // Stops look like Pokémon GO stops: a spinning cube on a pole far away, a photo disc that opens up when you're close.
+  // Subway entrances look like NYC stairways: railings, green globe lamps and a station sign that's always visible.
+  // Ferry landings get a blue dock sign.
+  function drawStation(st, t) {
+    const inR = hyp(P.x, P.y, st.x, st.y) <= RANGE, ferry = st.transit === 'ferry';
+    const x = st.x, y = st.y;
+    ctx.save(); ctx.translate(x, y); ctx.scale(1.6, 1.6); ctx.translate(-x, -y);
+    if (inR) {
+      const p = (t / 1000) % 1;
+      ctx.strokeStyle = (ferry ? 'rgba(249,115,22,' : 'rgba(22,163,74,') + (0.7 * (1 - p)) + ')'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.ellipse(x, y, 26 + p * 22, (26 + p * 22) * 0.4, 0, 0, 7); ctx.stroke();
+    }
+    if (ferry) {
+      ctx.fillStyle = '#7c5a3a'; ctx.fillRect(x - 22, y - 6, 44, 10);
+      ctx.fillStyle = '#5b4128'; for (let i = -18; i <= 18; i += 12) ctx.fillRect(x + i - 2, y + 2, 4, 8);
+    } else {
+      // stairway opening with railings
+      ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.beginPath(); ctx.ellipse(x, y + 2, 24, 8, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#2b2f36'; ctx.fillRect(x - 16, y - 10, 32, 14);
+      ctx.fillStyle = '#4b515c'; for (let i = 0; i < 4; i++) ctx.fillRect(x - 14, y - 8 + i * 3.4, 28, 1.6);
+      ctx.strokeStyle = '#1f5132'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(x - 17, y + 4); ctx.lineTo(x - 17, y - 12); ctx.lineTo(x + 17, y - 12); ctx.lineTo(x + 17, y + 4); ctx.stroke();
+      // green globe lamps on both posts
+      for (const s of [-1, 1]) {
+        const lx = x + s * 17, ly = y - 26;
+        ctx.strokeStyle = '#1f5132'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(lx, y - 12); ctx.lineTo(lx, ly + 5); ctx.stroke();
+        ctx.shadowColor = '#4ade80'; ctx.shadowBlur = 10 + 4 * Math.sin(t / 500 + s);
+        ctx.fillStyle = '#22c55e'; ctx.beginPath(); ctx.arc(lx, ly, 5, 0, 7); ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.beginPath(); ctx.arc(lx - 1.5, ly - 1.5, 1.6, 0, 7); ctx.fill();
+      }
+    }
+    // station sign
+    const sy = y - 46 + Math.sin(t / 600 + x) * 1.5;
+    ctx.font = '800 12px "Trebuchet MS", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const name = st.name.length > 26 ? st.name.slice(0, 25) + '…' : st.name;
+    const w = ctx.measureText(name).width + 34;
+    ctx.fillStyle = ferry ? '#0c4a6e' : '#111827';
+    rr(ctx, x - w / 2, sy - 11, w, 22, 5); ctx.fill();
+    ctx.fillStyle = ferry ? '#f97316' : '#fff'; ctx.fillRect(x - w / 2 + 3, sy - 9, w - 6, 2);
+    ctx.fillStyle = '#fff'; ctx.fillText(name, x + 8, sy + 1.5);
+    ctx.font = '13px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+    ctx.fillText(ferry ? '⛴️' : '🚇', x - w / 2 + 12, sy + 1.5);
+    if (inR) {
+      ctx.font = '800 11px "Trebuchet MS", sans-serif';
+      const tip = ferry ? 'Tap to take the ferry' : 'Tap to ride the subway';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.95)'; ctx.strokeText(tip, x, y + 18);
+      ctx.fillStyle = ferry ? '#0c4a6e' : '#15803d'; ctx.fillText(tip, x, y + 18);
+    }
+    ctx.restore();
+  }
   function drawStop(st, t) {
+    if (st.transit) { drawStation(st, t); return; }
     const cd = (S.cooldowns[st.id] || 0) > Date.now();
     const inR = hyp(P.x, P.y, st.x, st.y) <= RANGE;
     st.open = clamp((st.open || 0) + (inR ? 0.08 : -0.08), 0, 1);
@@ -1697,7 +1747,7 @@
   function openCatch(spawn) {
     mode = 'catch'; target = null; holding = false;
     const e = dexEntry(spawn.sp.id); e.seen++;
-    Music.play(C.sp.rarity >= 5 ? 'legend' : 'battle'); Music.sfx('encounter');
+    Music.play(spawn.sp.rarity >= 5 ? 'legend' : 'battle'); Music.sfx('encounter');
     const L = catchLayout();
     C = {
       spawn, sp: spawn.sp, cp: spawn.cp, L, bg: buildCatchBG(spawn.zone, L),
@@ -2435,7 +2485,7 @@
     if (mode !== 'map') return;
     const live = S.mode === 'live';
     openModal(`<h2>🗺️ Regimon GO map</h2>
-      <p class="sub">${live ? 'You’re in Live GPS mode — walk for real to move. ' : 'Tap anywhere to travel there. '}${S.experimental ? '🧪 Experimental: whole map open' : 'Shaded areas unlock in 🧪 Experimental mode'} · ⚔️ arenas · 🏆 badges won · 🔷 stops · 🟡 you · Map data © OpenStreetMap contributors</p>
+      <p class="sub">${live ? 'You’re in Live GPS mode — walk for real to move. ' : 'Tap anywhere to travel there. '}${S.experimental ? '🧪 Experimental: whole map open' : 'Shaded areas unlock in 🧪 Experimental mode'} · ⚔️ arenas · 🏆 badges won · 🔷 stops · 🟢 subway · 🟧 ferry · 🟡 you · Map data © OpenStreetMap contributors</p>
       <div class="ov-wrap"><canvas id="ov-canvas"></canvas></div>`);
     const cv = $('#ov-canvas'), wrap = cv.parentElement;
     const cssW = Math.min(wrap.clientWidth, innerHeight * 0.66 * W / H), s = cssW / W, cssH = H * s;
@@ -2449,7 +2499,11 @@
       for (let yy = 0; yy < cssH; yy += c) for (let xx = 0; xx < cssW; xx += c) if (!isSafe((xx + c / 2) / s, (yy + c / 2) / s)) g.fillRect(xx, yy, c, c);
     }
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    for (const st of STOPS) { g.fillStyle = (S.cooldowns[st.id] || 0) > Date.now() ? '#b36bd9' : '#2f9df4'; g.beginPath(); g.arc(st.x * s, st.y * s, 2, 0, 7); g.fill(); }
+    for (const st of STOPS) if (!st.transit) { g.fillStyle = (S.cooldowns[st.id] || 0) > Date.now() ? '#b36bd9' : '#2f9df4'; g.beginPath(); g.arc(st.x * s, st.y * s, 2, 0, 7); g.fill(); }
+    for (const st of STOPS) if (st.transit) {
+      g.fillStyle = st.transit === 'ferry' ? '#f97316' : '#16a34a'; g.strokeStyle = '#fff'; g.lineWidth = 1.2;
+      g.beginPath(); if (st.transit === 'ferry') g.rect(st.x * s - 3, st.y * s - 3, 6, 6); else g.arc(st.x * s, st.y * s, 3.2, 0, 7); g.fill(); g.stroke();
+    }
     g.font = '700 10px "Trebuchet MS", sans-serif';
     for (const [n, p] of PLACES) {
       const half = g.measureText(n).width / 2 + 3, lx = clamp(p.x * s, half, cssW - half);
