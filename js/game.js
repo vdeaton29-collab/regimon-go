@@ -30,7 +30,7 @@
       version: SAVE_VERSION, xp: 0, level: 1, items: { regi: 30, honors: 5, magna: 1, bagel: 5 },
       dex: {}, caught: [], cooldowns: {}, badges: {}, px: START.x, py: START.y, intro: false, nextUid: 1,
       rating: 1000, leagueW: 0, leagueL: 0, leagueBest: 1000, mode: 'explore', walked: 0, shinies: 0,
-      name: '', pid: Math.random().toString(36).slice(2, 12), online: false, music: 'auto', experimental: false, candy: {}, rareCandy: 0, mgCd: {}, quest: { round: 1, prog: {}, boss: false, beaten: false, shiny: null },
+      name: '', pid: Math.random().toString(36).slice(2, 12), online: false, music: 'auto', experimental: false, candy: {}, rareCandy: 0, mgCd: {}, buddy: null, buddyDist: 0, quest: { round: 1, prog: {}, boss: false, beaten: false, shiny: null },
     };
   }
   function load() {
@@ -806,6 +806,7 @@
   mapCv.addEventListener('pointerdown', e => {
     if (mode !== 'map' || modalOpen) return;
     const w = screenToWorld(e.clientX, e.clientY);
+    if (buddyMon() && hyp(w.x, w.y, BUD.x, BUD.y - 25) < 28) { BUD.love = 1.5; Music.sfx('buff'); toast(`❤️ <b>${byId[buddyMon().sid].name}</b> loves the attention!`); return; }
     let best = null, bd = 42;
     for (const s of spawns) { const d = hyp(w.x, w.y, s.x, s.y - 24); if (d < bd) { bd = d; best = s; } }
     if (best) {
@@ -999,12 +1000,17 @@
       P.x = clamp(P.x + (mx / m) * step, 20, W - 20);
       P.y = clamp(P.y + (my / m) * step, 20, H - 20);
       if (S.mode !== 'live' && !isSafe(P.x, P.y)) { P.x = ox; P.y = oy; target = null; P.travel = false; holding = false; safeBlocked(); }
-      if (!P.travel) { const m = hyp(ox, oy, P.x, P.y) * METERS_PER_PX; S.walked += m; qAdd('walk', m); }
+      if (!P.travel) {
+        const m = hyp(ox, oy, P.x, P.y) * METERS_PER_PX; S.walked += m; qAdd('walk', m);
+        const bc = buddyMon();
+        if (bc) { S.buddyDist += m; if (S.buddyDist >= 1000) { S.buddyDist -= 1000; const bsp = byId[bc.sid]; addCandy(bsp, 3); BUD.love = 1.5; toast(`🐾 Your buddy <b>${bsp.name}</b> found 3 🍬 candy!`, 3000); Music.sfx('buff'); } }
+      }
       P.dir = Math.atan2(my, mx); P.moving = true; P.walkT += dt * (P.travel ? 1.8 : 1);
       if (Math.abs(mx / m) > 0.2) P.face = mx > 0 ? 1 : -1;
       P.puffT -= dt;
       if (P.puffT <= 0) { P.puffT = 0.12; puffs.push({ x: P.x - (mx / m) * 8 + rnd(-3, 3), y: P.y + rnd(-1, 2), t: 0 }); }
     } else { P.moving = false; P.walkT = 0; }
+    updateBuddy(dt);
     for (const p of puffs) p.t += dt;
     puffs = puffs.filter(p => p.t < 0.5);
 
@@ -1039,10 +1045,9 @@
   // Stops look like Pokémon GO stops: a spinning cube on a pole far away, a photo disc that opens up when you're close.
   // Arcades: a glowing cabinet on a purple pad. Grey while it's recharging.
   const MG_COOLDOWN = 30 * 60 * 1000;
-  const ARCADE_COLORS = { whack: '#f97316', memory: '#22c55e', toss: '#38bdf8' };
   function drawArcade(st, t) {
     const x = st.x, y = st.y, cd = (S.mgCd[st.id] || 0) > Date.now(), inR = hyp(P.x, P.y, x, y) <= RANGE;
-    const col = cd ? '#9ca3af' : ARCADE_COLORS[st.arcade], G2 = RGMini.GAMES[st.arcade];
+    const G2 = RGMini.GAMES[st.arcade], col = cd ? '#9ca3af' : G2.color;
     ctx.save(); ctx.translate(x, y); ctx.scale(1.4, 1.4); ctx.translate(-x, -y);
     ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.beginPath(); ctx.ellipse(x, y + 2, 22, 8, 0, 0, 7); ctx.fill();
     ctx.fillStyle = cd ? '#6b7280' : '#7c3aed'; ctx.beginPath(); ctx.ellipse(x, y, 20, 7, 0, 0, 7); ctx.fill();
@@ -1089,11 +1094,11 @@
       RGMini.play(st.arcade, {
         art: (sp, shiny) => Art.url(sp, shiny),
         randomSpecies: () => pool[Math.floor(Math.random() * pool.length)],
-        sfx: n => Music.sfx(n),
+        sfx: n => Music.sfx(n), types: TYPES,
         done: score => {
           mode = 'map'; Music.play(areaTrack(zone));
           if (score == null) { toast('🕹️ Come back and finish a game to earn Rare Candy!'); return; }
-          const per = { whack: 2.5, memory: 2, toss: 1.8 }[st.arcade];
+          const per = RGMini.GAMES[st.arcade].per;
           const candy = clamp(Math.round(score / per), 1, 15), xp = 100 + score * 10;
           S.rareCandy += candy; S.mgCd[st.id] = Date.now() + MG_COOLDOWN; addXP(xp); qAdd('game'); save();
           Music.sfx(candy >= 8 ? 'victory' : 'catch');
@@ -1339,6 +1344,12 @@
     }
   }
   function drawPeer(p, t) {
+    if (p.b && byId[p.b]) {
+      if (p.bx == null || hyp(p.bx, p.by, p.rx, p.ry) > 700) { p.bx = p.rx - 40; p.by = p.ry + 10; }
+      const dx = p.rx - p.bx, dy = p.ry - p.by, d = Math.hypot(dx, dy);
+      if (d > 46) { p.bx += dx / d * (d - 44) * 0.08; p.by += dy / d * (d - 44) * 0.08; }
+      drawBuddyAt(byId[p.b], p.bs, p.bx, p.by, dx >= 0 ? 1 : -1, d > 48, t, 0);
+    }
     drawPerson({ x: p.rx, y: p.ry, face: p.face, moving: p.moving, walkT: p.walkT }, lookFor(p.id), t);
     nameTag(p.rx, p.ry - 62, `🌐 ${p.name} · Lv ${p.lvl}`);
     drawBubble(p.id, p.rx, p.ry - 80);
@@ -1380,6 +1391,38 @@
       lines.forEach((l, i) => ctx.fillText(l, 0, -h - 8 + 12 + i * 15));
     }
     ctx.restore();
+  }
+
+  // ---------------- buddy ----------------
+  const BUD = { x: 0, y: 0, face: 1, moving: false, love: 0, uid: null };
+  const buddyMon = () => (S.buddy ? S.caught.find(c => c.uid === S.buddy) : null);
+  function updateBuddy(dt) {
+    const c = buddyMon();
+    if (!c) return;
+    if (BUD.uid !== c.uid || hyp(BUD.x, BUD.y, P.x, P.y) > 700) { BUD.uid = c.uid; BUD.x = P.x - 40; BUD.y = P.y + 10; }
+    const dx = P.x - BUD.x, dy = P.y - BUD.y, d = Math.hypot(dx, dy);
+    if (d > 46) {
+      const step = Math.min(d - 44, Math.max(SPEED * 0.9, d * 3) * dt);
+      BUD.x += dx / d * step; BUD.y += dy / d * step; BUD.moving = true;
+      if (Math.abs(dx) > 4) BUD.face = dx > 0 ? 1 : -1;
+    } else BUD.moving = false;
+    BUD.love = Math.max(0, BUD.love - dt);
+  }
+  function drawBuddyAt(sp, shiny, x, y, face, moving, t, love) {
+    const im = Art.img(sp, shiny), hop = moving ? Math.abs(Math.sin(t / 110)) * 9 : Math.sin(t / 500) * 1.5, s = 50;
+    ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.beginPath(); ctx.ellipse(x, y, 15 - hop * 0.5, 5, 0, 0, 7); ctx.fill();
+    if (im.complete && im.naturalWidth) { ctx.save(); ctx.translate(x, y - s * 0.5 - hop); ctx.scale(-face, 1); ctx.drawImage(im, -s / 2, -s / 2, s, s); ctx.restore(); }
+    if (love > 0) {
+      ctx.globalAlpha = Math.min(1, love); ctx.font = '18px "Segoe UI Emoji", "Apple Color Emoji", sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('❤️', x - 10, y - s - 6 - (1.5 - love) * 20); ctx.fillText('💕', x + 12, y - s - 16 - (1.5 - love) * 14); ctx.globalAlpha = 1;
+    }
+  }
+  function drawBuddy(t) {
+    const c = buddyMon(); if (!c) return;
+    drawBuddyAt(byId[c.sid], c.shiny, BUD.x, BUD.y, BUD.face, BUD.moving, t, BUD.love);
+  }
+  function setBuddy(uid) {
+    S.buddy = uid; S.buddyDist = 0; BUD.uid = null; save();
   }
 
   function drawPlayer(t) {
@@ -1617,6 +1660,7 @@
     for (const n of npcs) items.push([n.y, () => drawNPC(n, t)]);
     for (const p of onlinePeers) if (p.rx != null && Math.abs(p.rx - P.x) < hw + 100 && Math.abs(p.ry - P.y) < hh + 100) items.push([p.ry, () => drawPeer(p, t)]);
     items.push([P.y, () => drawPlayer(t)]);
+    if (buddyMon()) items.push([BUD.y, () => drawBuddy(t)]);
     items.sort((a, b) => a[0] - b[0]);
     for (const [, fn] of items) fn();
 
@@ -2357,11 +2401,35 @@
   const GIFTS = {
     '93826a9e0f160cdc23c13f3eb7648b7188b9206d2d9d282bde66df8132f2f133': { sid: 313, cp: 2600, text: 'the Mythic Umbravolt' },
   };
+  // Small SHA-256 (works even where the browser's crypto API is blocked, like inside the claude.ai preview).
+  function sha256hex(str) {
+    const K = [], H0 = [];
+    const frac = x => ((x - Math.floor(x)) * 4294967296) >>> 0;
+    for (let n = 2, c = 0; c < 64; n++) { let p = true; for (let d = 2; d * d <= n; d++) if (n % d === 0) { p = false; break; } if (p) { if (c < 8) H0.push(frac(Math.sqrt(n))); K.push(frac(Math.cbrt(n))); c++; } }
+    const bytes = [...new TextEncoder().encode(str)], bitLen = bytes.length * 8;
+    bytes.push(0x80); while (bytes.length % 64 !== 56) bytes.push(0);
+    for (let i = 7; i >= 0; i--) bytes.push(i >= 4 ? 0 : (bitLen >>> (i * 8)) & 255);
+    const h = H0.slice(), w = new Array(64), rotr = (x, n) => (x >>> n) | (x << (32 - n));
+    for (let o = 0; o < bytes.length; o += 64) {
+      for (let i = 0; i < 16; i++) w[i] = (bytes[o + i * 4] << 24) | (bytes[o + i * 4 + 1] << 16) | (bytes[o + i * 4 + 2] << 8) | bytes[o + i * 4 + 3];
+      for (let i = 16; i < 64; i++) {
+        const s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >>> 3), s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >>> 10);
+        w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0;
+      }
+      let [a, b, c, d, e, f, gg, hh] = h;
+      for (let i = 0; i < 64; i++) {
+        const t1 = (hh + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & gg)) + K[i] + w[i]) | 0;
+        const t2 = ((rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+        hh = gg; gg = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+      }
+      [a, b, c, d, e, f, gg, hh].forEach((v, i) => { h[i] = (h[i] + v) | 0; });
+    }
+    return h.map(v => (v >>> 0).toString(16).padStart(8, '0')).join('');
+  }
   async function redeem(raw) {
     const norm = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (!norm) return;
-    if (!(window.crypto && crypto.subtle)) { toast('🎁 Codes work on the GitHub Pages site.'); return; }
-    const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('regimon-gift:' + norm)))].map(b => b.toString(16).padStart(2, '0')).join('');
+    const hash = sha256hex('regimon-gift:' + norm);
     const gift = GIFTS[hash];
     S.redeemed = S.redeemed || [];
     if (!gift) { toast('🎁 That code doesn’t work.'); return; }
@@ -2404,11 +2472,18 @@
       ${next ? `<button class="primary evo-btn" id="mon-evolve" ${have >= cost ? '' : 'disabled'}>⬆️ Evolve · 🍬 ${cost}</button>`
         : `<p class="sub">${line.length > 1 ? '🌟 Fully evolved!' : 'This Regimon does not evolve.'}</p>`}
       ${movesHTML(s)}
-      <div class="row"><button class="ghost" id="mon-back">← Back</button><button class="ghost" id="mon-dex">📖 Regidex</button><button class="ghost" id="mon-transfer">🎁 Transfer (+1 🍬)</button></div>
+      <div class="row"><button class="ghost" id="mon-back">← Back</button><button class="ghost" id="mon-dex">📖 Regidex</button><button class="ghost" id="mon-buddy">${S.buddy === c.uid ? '🐾 Stop following' : '🐾 Make buddy'}</button><button class="ghost" id="mon-transfer">🎁 Transfer (+1 🍬)</button></div>
+      ${S.buddy === c.uid ? '<p class="sub">🐾 This is your buddy! It follows you around and finds 3 🍬 every 1 km you walk together.</p>' : ''}
     </div>`);
     $('#mon-back').onclick = back;
     $('#mon-dex').onclick = () => showSpecies(s.id, () => showMon(uid, back));
+    $('#mon-buddy').onclick = () => {
+      if (S.buddy === c.uid) { setBuddy(null); toast('🐾 Your buddy is resting in the box.'); }
+      else { setBuddy(c.uid); BUD.love = 1.5; Music.sfx('buff'); toast(`🐾 <b>${s.name}</b> is now your buddy and will follow you!`, 3000); }
+      showMon(uid, back);
+    };
     $('#mon-transfer').onclick = () => {
+      if (S.buddy === c.uid) { toast('🐾 That’s your buddy! Pick a different buddy first.'); return; }
       if (S.caught.length <= 1) { toast('Keep at least one Regimon!'); return; }
       S.caught = S.caught.filter(m => m.uid !== uid); addCandy(s, 1); save();
       toast(`🎁 Sent ${s.name} to Professor Regis. +1 🍬`); back();
@@ -2567,7 +2642,8 @@
         <li>✅ <b>Safe & 🧪 Experimental</b> — you start in the best areas (Manhattan, the harbor, Hoboken, downtown Jersey City). Turn on Experimental mode in the 👑 menu to explore the whole map while it's still being finished.</li>
         <li>🚇 <b>Subway & ferry</b> — walk up to a station and tap it to ride to any other station on the map.</li>
         <li>💬 <b>Chat & emotes</b> — tap 💬 to send emotes over your trainer. When you're 🌐 Online you can chat, and tap other trainers to wave, ✨ teleport to them, or ⚔️ duel their real team.</li>
-        <li>🕹️ <b>Arcades</b> — play minigames at arcades around the map to win 🍭 Rare Candy (use it on any Regimon). Each arcade recharges for 30 minutes.</li>
+        <li>🐾 <b>Buddy</b> — open a Regimon in 🗃️ Caught and tap Make buddy. It follows you around (other trainers see it too), finds 3 🍬 every 1 km, and loves being tapped.</li>
+        <li>🕹️ <b>Arcades</b> — play 23 different minigames at arcades around the map to win 🍭 Rare Candy (use it on any Regimon). Each arcade recharges for 30 minutes.</li>
         <li>📜 <b>Quests</b> — finish all eight to battle and catch the Mythic boss. 1 in 10 are shiny!</li>
         <li>🔍 <b>Zoom</b> — pinch, scroll or use ➕ ➖. The 🗺️ map zooms too.</li>
         <li>⬆️ <b>Evolving</b> — every catch gives 🍬 candy for that Regimon's family. Open 🗃️ Caught, tap a Regimon and press Evolve when you have enough candy. Transfer extras for +1 🍬.</li>
@@ -2845,7 +2921,7 @@
     if (on) {
       Online.start({
         id: S.pid, world: { W, H },
-        getState: () => ({ n: S.name, l: S.level, h: zoneName, live: S.mode === 'live', f: P.face, mv: P.moving,
+        getState: () => ({ n: S.name, l: S.level, h: zoneName, live: S.mode === 'live', f: P.face, mv: P.moving, ...(buddyMon() ? { b: buddyMon().sid, bs: buddyMon().shiny ? 1 : 0 } : {}),
           ...(S.mode === 'live' ? {} : { x: Math.round(P.x), y: Math.round(P.y) }) }),
         onStatus: paintOnline,
         onWave: from => { Music.sfx('ready'); toast(`👋 <b>${esc(from)}</b> waved at you!`, 3000); },

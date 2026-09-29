@@ -125,6 +125,7 @@ window.RGOnline = (() => {
       id: m.id, name: cleanName(m.n), lvl: num(m.l, 1, 999) || 1, hood: String(m.h || '').slice(0, 40), live: !!m.live,
       x, y, rx: old && old.rx != null && x != null ? old.rx : x, ry: old && old.ry != null && y != null ? old.ry : y,
       face: m.f === -1 ? -1 : 1, moving: !!m.mv, walkT: old ? old.walkT : 0, t: Date.now(),
+      b: Number.isInteger(m.b) && m.b > 0 && m.b < 2000 ? m.b : null, bs: m.bs === 1, bx: old ? old.bx : null, by: old ? old.by : null,
     });
   }
   function list() {
