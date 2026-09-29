@@ -3,7 +3,7 @@
   'use strict';
   const { TYPES, RARITY, SHINY_ODDS, BALLS, ZONES, ZONE_HINTS, ARENAS, TRAINER_NAMES, SPECIES } = window.RG;
   const RG = window.RG;
-  const GAME_VERSION = 15;
+  const GAME_VERSION = 16;
   const GEO = window.RGGeo;
   const { W, H, PPM } = GEO;
   const Art = window.RGArt, Music = window.RGMusic, Battle = window.RGBattle, Online = window.RGOnline;
@@ -3037,6 +3037,7 @@
         <li>🗺️ <b>Explore NYC</b> — every neighborhood has its own Regimon: Skyscraper types in Midtown, Wall Street types downtown, Harbor types by the Statue of Liberty, Jersey types across the Hudson. Open the map to fast-travel anywhere.</li>
         <li>✅ <b>Safe & 🧪 Experimental</b> — you start in the best areas (Manhattan, the harbor, Hoboken, downtown Jersey City). Turn on Experimental mode in the 👑 menu to explore the whole map while it's still being finished.</li>
         <li>🚇 <b>Subway & ferry</b> — walk up to a station and tap it to ride to any other station on the map.</li>
+        <li>⚔️ <b>PvP</b> — when you're 🌐 Online, tap another trainer and pick PvP battle to fight them live: you both control your own Regimon.</li>
         <li>💬 <b>Chat & emotes</b> — tap 💬 to send emotes over your trainer. When you're 🌐 Online you can chat, and tap other trainers to wave, ✨ teleport to them, or ⚔️ duel their real team.</li>
         <li>🎰 <b>Regi Casino</b> — a giant casino in Times Square. Walk inside, bet 🍭 Rare Candy at roulette and blackjack, and buy rare Regimon from the cages (they restock daily).</li>
         <li>🐾 <b>Buddy</b> — open a Regimon in 🗃️ Caught and tap Make buddy. It follows you around (other trainers see it too), finds 3 🍬 every 1 km, and loves being tapped.</li>
@@ -3326,7 +3327,7 @@
           ...(S.mode === 'live' ? {} : { x: Math.round(P.x), y: Math.round(P.y) }) }),
         onStatus: paintOnline,
         onWave: from => { Music.sfx('ready'); toast(`👋 <b>${esc(from)}</b> waved at you!`, 3000); },
-        onChat, onDuel,
+        onChat, onDuel, onBattle: m => Battle.netMsg(m),
       });
     } else Online.stop();
     paintOnline(); paintChat();
@@ -3499,7 +3500,7 @@
       <p class="sub">Lv ${p.lvl} · ${esc(p.hood || 'Somewhere in NYC')}${p.live ? ' · 🛰️ Live GPS' : ''}</p>
       <div class="modes">
         <button class="mode" id="pm-wave"><b>👋 Wave</b><small>Say hi.</small></button>
-        <button class="mode" id="pm-duel"><b>⚔️ Duel</b><small>Battle their real team.</small></button>
+        <button class="mode" id="pm-duel"><b>⚔️ PvP battle</b><small>Battle them live, move for move.</small></button>
         <button class="mode" id="pm-tp" ${canTp ? '' : 'disabled'}><b>✨ Teleport</b><small>${p.x == null ? 'They are playing with Live GPS, so their location is private.' : S.mode === 'live' ? 'Switch to 🎮 Explore mode to teleport.' : 'Jump right next to them.'}</small></button>
         <button class="mode" id="pm-mute"><b>${muted ? '🔈 Unmute' : '🔇 Mute'}</b><small>${muted ? 'See their messages again.' : 'Hide their chat and duel invites.'}</small></button>
       </div>
@@ -3530,9 +3531,8 @@
     setTimeout(() => { ov.remove(); Music.sfx('levelup'); toast(`✨ Teleported to <b>${esc(p.name)}</b>!`); }, 1000);
   }
 
-  // Duels: both trainers pick a team and swap them. Each player then battles the other's real team
-  // (the other trainer's moves are played by the AI, since the free public server is too slow for move-by-move sync).
-  // Whoever wins their battle with more HP left wins the duel.
+  // Duels are live PvP battles: both trainers pick a team, then battle each other in real time.
+  // The challenger's game runs the battle; the other player's taps are sent over the network.
   let duel = null;
   const DUEL_TIMEOUT = 45000;
   function teamMsg(entries) { return entries.slice(0, 3).map(c => [c.sid, c.cp, c.shiny ? 1 : 0]); }
@@ -3607,45 +3607,26 @@
       if (duel.fighting) return;
       clearTimeout(duel.timer); duel = null; closeModal();
       toast(m.k === 'cancel' ? `${esc(name)} cancelled the duel.` : m.busy ? `${esc(name)} is busy right now.` : `${esc(name)} declined the duel.`);
-    } else if (m.k === 'res' && duel.fighting) {
-      duel.them = { win: !!m.win, hp: Math.max(0, Math.min(1, +m.hp || 0)) };
-      finishDuel();
     }
   }
   function fightDuel() {
     const dd = duel;
     dd.fighting = true;
-    toast(`⚔️ Duel with <b>${esc(dd.name)}</b>! Beat their team with as much HP left as you can.`, 3500);
+    clearTimeout(dd.timer);
+    toast(`⚔️ Live battle with <b>${esc(dd.name)}</b>! You control your Regimon — they control theirs.`, 3500);
     Battle.start(duelFoe(dd.name, dd.theirs, {
-      winQuote: 'GG! Rematch any time.',
+      title: 'Live PvP battle', quote: 'Let’s battle!', winQuote: 'GG! Rematch any time.',
+      net: { role: dd.role === 'host' ? 'host' : 'guest', peer: dd.pid, send: m => Online.battle(dd.pid, m) },
       onResult: (win, st) => {
-        dd.me = { win, hp: win ? st.hpLeft : 0 };
-        Online.duel(dd.pid, { k: 'res', d: dd.id, win, hp: +dd.me.hp.toFixed(3) });
-        dd.timer = setTimeout(() => { if (duel === dd) { dd.them = dd.them || { win: false, hp: 0, gone: true }; finishDuel(); } }, 120000);
-        setTimeout(finishDuel, 2500);
-        return [dd.them ? '' : `⏳ Waiting for ${esc(dd.name)} to finish their battle…`].filter(Boolean);
+        if (duel === dd) duel = null;
+        if (st && st.forfeit) { S.duelL = (S.duelL || 0) + 1; save(); return ['You left the battle.']; }
+        if (win) { addXP(400); S.items.honors += 2; S.duelW = (S.duelW || 0) + 1; save(); return [`🏆 You beat ${dd.name}!`, '+400 XP · +2 Honors Balls']; }
+        addXP(100); S.duelL = (S.duelL || 0) + 1; save();
+        return [`${dd.name} won this one.`, '+100 XP'];
       },
     }), dd.mine);
   }
-  function finishDuel() {
-    const dd = duel;
-    if (!dd || !dd.me || !dd.them || dd.done || mode !== 'map' || Battle.isActive()) return;
-    dd.done = true; clearTimeout(dd.timer); duel = null;
-    const a = dd.me, b = dd.them;
-    const score = r => (r.win ? 1 + r.hp : 0);
-    const res = score(a) > score(b) ? 'win' : score(a) < score(b) ? 'lose' : 'draw';
-    if (res === 'win') { addXP(400); S.items.honors += 2; S.duelW = (S.duelW || 0) + 1; } else if (res === 'lose') { addXP(100); S.duelL = (S.duelL || 0) + 1; } else addXP(200);
-    save();
-    Music.sfx(res === 'win' ? 'rankup' : res === 'lose' ? 'defeat' : 'ready');
-    const line = r => (r.gone ? 'left the duel' : r.win ? `won with ${Math.round(r.hp * 100)}% HP left` : 'lost their battle');
-    openModal(`<div class="result"><div class="bigemoji">${res === 'win' ? '🏆' : res === 'lose' ? '😤' : '🤝'}</div>
-      <h2>${res === 'win' ? 'You won the duel!' : res === 'lose' ? `${esc(dd.name)} won the duel` : 'It’s a draw!'}</h2>
-      <p class="sub">You ${line(a).replace('their', 'your')} · ${esc(dd.name)} ${line(b)}</p>
-      <div class="xpgain">${res === 'win' ? '+400 XP · +2 Honors Balls' : res === 'lose' ? '+100 XP' : '+200 XP'}</div>
-      <button class="primary" id="duel-ok">OK</button></div>`);
-    $('#duel-ok').onclick = () => closeModal();
-  }
-  setInterval(() => { if (duel && duel.me && duel.them) finishDuel(); }, 1000);
+
   setInterval(() => { if (S.online) paintOnline(); }, 3000);
 
   // Offline support: cache the game files so it keeps working without internet (on the GitHub Pages site).

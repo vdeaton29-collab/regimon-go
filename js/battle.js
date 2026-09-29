@@ -385,7 +385,8 @@ window.RGBattle = (() => {
     const foeTeam = foe.team.map((id, i) => makeMon(G.byId[id], foe.levels ? foe.levels[i] : Math.max(4, Math.round(avg * foe.levelMult + foe.levelAdd + i)),
       foe.shinies ? { shiny: !!foe.shinies[i] } : null));
     const side = (team, ai, name) => ({ team, i: 0, shields: 2, cd: 0.4, swCd: 0, ai, name, react: 0, switches: 0, fainting: false, ready: [false, false] });
-    B = { foe, sides: [side(myTeam, false, 'You'), side(foeTeam, true, foe.name)], paused: true, over: false, t: 0, holding: false, tap: false, queued: null, used: new Set([myTeam[0]]), ui: {} };
+    B = { foe, sides: [side(myTeam, false, 'You'), side(foeTeam, true, foe.name)], paused: true, over: false, t: 0, holding: false, tap: false, queued: null, used: new Set([myTeam[0]]), ui: {},
+      net: foe.net || null, netLast: Date.now() + 15000, netT: 0, netSeq: -1, seq: 0, rHold: false, rTap: false, rq: null, asks: {}, askN: 0, lastHold: false, hbT: 0, gBusy: false };
     const el = $('#battle');
     el.style.setProperty('--arena', foe.color);
     el.classList.remove('hidden');
@@ -400,6 +401,7 @@ window.RGBattle = (() => {
     intro();
   }
   async function intro() {
+    if (B.net && B.net.role === 'guest') { msg(`Battle with ${B.foe.name} is starting…`); return; }   // the host un-pauses the guest
     msg(`${B.foe.name} wants to battle!`);
     await sleep(1100);
     msg('Hold to attack! Special attacks light up when you have enough energy.');
@@ -486,6 +488,7 @@ window.RGBattle = (() => {
   }
 
   // ---------- actions ----------
+  const netEv = e => { if (B && B.net && B.net.role === 'host') B.net.send({ k: 'ev', ...e }); };
   function doFast(si) {
     const side = B.sides[si], a = act(side), d = act(B.sides[1 - si]);
     const mv = a.fast;
@@ -498,6 +501,7 @@ window.RGBattle = (() => {
     typeFx(mv.type, centerOf(si ? '#bf-img' : '#bm-img'), centerOf(si ? '#bm-img' : '#bf-img'), false);
     G.Music.attack(mv.type, false);
     floatText(1 - si, `-${dmg}`, eff > 1 ? 'super small' : 'small');
+    netEv({ t: 'f', si, d: dmg, e: eff });
   }
 
   async function runCharged(si, mv) {
@@ -506,17 +510,19 @@ window.RGBattle = (() => {
     a.energy -= mv.cost;
     const from = centerOf(si ? '#bf-img' : '#bm-img'), to = centerOf(si ? '#bm-img' : '#bf-img');
     banner(`${who(si, a)} used ${mv.name}!`, G.TYPES[mv.type]);
+    netEv({ t: 'cs', si, c: a.charged.indexOf(mv) });
     G.Music.sfx('charge');
     anim(si, 'glowup');
     ring(from, G.TYPES[mv.type], 90, 0.7, 6);
     burst(from, { n: 26, speed: 120, life: 0.7, size: [3, 6], colors: [G.TYPES[mv.type], '#ffffff'], glow: true, drag: 1 });
     let mult;
     if (si === 0) mult = await minigame(mv);
+    else if (B.net) { mult = clamp(B.remoteMult || 0.7, 0.5, 1); await sleep(250); }   // the other player already did their timing meter
     else { msg(`${who(1, a)} is charging ${mv.name}!`); await sleep(750); mult = clamp(B.foe.skill * rnd(0.88, 1.06), 0.5, 1); }
     if (!B) return;
     let shielded = false;
     if (other.shields > 0) {
-      shielded = si === 1 ? await shieldPrompt(mv, a) : aiShield(a, d, mv, mult);
+      shielded = si === 1 ? await shieldPrompt(mv, a) : B.net ? await askRemote('shield', { c: a.charged.indexOf(mv) }, 3800, false) : aiShield(a, d, mv, mult);
     }
     if (!B) return;
     if (shielded) {
@@ -530,6 +536,7 @@ window.RGBattle = (() => {
       typeFx(mv.type, from, to, false);
       d.hp = Math.max(0, d.hp - 1);
       floatText(1 - si, 'Shielded!', 'shield');
+      netEv({ t: 'ch', si, c: a.charged.indexOf(mv), sh: 1 });
       msg(`${who(1 - si, d)} blocked it with a shield!`);
       await sleep(900);
     } else {
@@ -540,6 +547,7 @@ window.RGBattle = (() => {
       if (!B) return;
       const { dmg, eff } = calcDamage(a, d, mv, mult);
       d.hp = Math.max(0, d.hp - dmg);
+      netEv({ t: 'ch', si, c: a.charged.indexOf(mv), d: dmg, e: eff });
       shake(true);
       anim(1 - si, 'hurt');
       floatText(1 - si, `-${dmg}`, eff > 1 ? 'super' : '');
@@ -607,12 +615,122 @@ window.RGBattle = (() => {
     doFast(1);
   }
 
+  function remoteTick() {
+    const rs = B.sides[1], m = act(rs);
+    if (m.hp <= 0 || m.stun > 0 || rs.cd > 0) return;
+    if (B.rq !== null) {
+      const mv = m.charged[B.rq]; B.rq = null;
+      if (mv && m.energy >= mv.cost) { runCharged(1, mv); return; }
+    }
+    if (B.rHold || B.rTap) { B.rTap = false; doFast(1); }
+  }
+  function askRemote(q, extra, ms, fallback) {
+    return new Promise(res => {
+      const id = ++B.askN;
+      const done = v => { if (!B || !B.asks[id]) return; delete B.asks[id]; clearTimeout(tm); res(v); };
+      const tm = setTimeout(() => done(fallback), ms);
+      B.asks[id] = done;
+      B.net.send({ k: 'ask', q, id, ...extra });
+    });
+  }
+  function sendState() {
+    const pack = s => ({ i: s.i, sh: s.shields, sw: Math.max(0, Math.round(s.swCd)), tm: s.team.map(m => [Math.round(m.hp), Math.round(m.energy), m.burn > 0 ? 1 : 0, m.stun > 0 ? 1 : 0, m.st.atk, m.st.def]) });
+    B.net.send({ k: 'st', q: ++B.seq, p: B.paused ? 1 : 0, s: [pack(B.sides[0]), pack(B.sides[1])] });
+  }
+
+  // ---------- guest: mirror the host ----------
+  function applyState(st) {
+    if (!(st.q > B.netSeq) || !Array.isArray(st.s) || st.s.length !== 2) return;
+    B.netSeq = st.q;
+    st.s.forEach((hs, s) => {
+      const L = 1 - s, side = B.sides[L];
+      if (!hs || !Array.isArray(hs.tm)) return;
+      side.shields = clamp(hs.sh | 0, 0, 2); side.swCd = hs.sw | 0;
+      hs.tm.forEach((a, k) => {
+        const m = side.team[k]; if (!m || !Array.isArray(a)) return;
+        m.hp = clamp(+a[0] || 0, 0, m.maxHp); m.energy = clamp(+a[1] || 0, 0, MAX_ENERGY); m.burn = a[2] ? 1 : 0; m.stun = a[3] ? 1 : 0; m.st = { atk: a[4] | 0, def: a[5] | 0 };
+      });
+      const ni = hs.i | 0;
+      if (side.team[ni] && side.i !== ni) { side.i = ni; renderSide(L); if (!L) B.used.add(act(side)); }
+    });
+    B.paused = !!st.p;
+  }
+  function guestEvent(e) {
+    const L = e.si === 0 ? 1 : 0, side = B.sides[L], a = act(side), d = act(B.sides[1 - L]);
+    const from = centerOf(L ? '#bf-img' : '#bm-img'), to = centerOf(L ? '#bm-img' : '#bf-img');
+    if (e.t === 'f') {
+      anim(L, 'lunge'); setTimeout(() => { if (B) anim(1 - L, 'hurt'); }, 120);
+      typeFx(a.fast.type, from, to, false); G.Music.attack(a.fast.type, false);
+      floatText(1 - L, `-${e.d | 0}`, e.e > 1 ? 'super small' : 'small');
+    } else if (e.t === 'cs') {
+      const mv = a.charged[e.c]; if (!mv) return;
+      banner(`${who(L, a)} used ${mv.name}!`, G.TYPES[mv.type]); G.Music.sfx('charge');
+      anim(L, 'glowup'); ring(from, G.TYPES[mv.type], 90, 0.7, 6);
+      burst(from, { n: 26, speed: 120, life: 0.7, size: [3, 6], colors: [G.TYPES[mv.type], '#ffffff'], glow: true, drag: 1 });
+      if (L === 1) msg(`${who(1, a)} is using ${mv.name}!`);
+    } else if (e.t === 'ch') {
+      const mv = a.charged[e.c]; if (!mv) return;
+      anim(L, 'lunge');
+      if (e.sh) {
+        G.Music.sfx('shield'); typeFx(mv.type, from, to, false);
+        floatText(1 - L, 'Shielded!', 'shield'); msg(`${who(1 - L, d)} blocked it with a shield!`);
+      } else {
+        G.Music.attack(mv.type, true);
+        const impact = typeFx(mv.type, from, to, true);
+        setTimeout(() => {
+          if (!B) return;
+          shake(true); anim(1 - L, 'hurt'); floatText(1 - L, `-${e.d | 0}`, e.e > 1 ? 'super' : '');
+          const notes = [e.e > 1 ? 'Super effective!' : e.e < 1 ? 'Not very effective…' : '', mv.effect ? EFFECT_TEXT[mv.effect] + '!' : ''].filter(Boolean);
+          if (notes.length) msg(notes.join(' '));
+        }, impact * 1000);
+      }
+    } else if (e.t === 'ft') {
+      G.Music.sfx('faint'); anim(L, 'faint'); msg(`${who(L, a)} fainted!`);
+    } else if (e.t === 'sw') {
+      const side2 = B.sides[L];
+      if (side2.team[e.i] && side2.i !== e.i) { side2.i = e.i; renderSide(L); }
+      msg(L ? `${B.foe.name} sent out ${act(side2).sp.name}!` : `Go, ${act(side2).sp.name}!`);
+    }
+  }
+  async function answerAsk(m) {
+    let v;
+    if (m.q === 'shield') {
+      const attacker = act(B.sides[1]), mv = attacker.charged[m.c];
+      v = B.sides[0].shields > 0 && mv ? await shieldPrompt(mv, attacker) : false;
+    } else if (m.q === 'pick') {
+      v = await pickPrompt(true);
+    }
+    if (B) B.net.send({ k: 'ans', id: m.id, v });
+  }
+  // Every battle message from the other player comes through here.
+  function netMsg(m) {
+    if (!B || !B.net || B.over || m.from !== B.net.peer) return;
+    B.netLast = Date.now();
+    if (B.net.role === 'host') {
+      if (m.k === 'h' || m.k === 'hb') B.rHold = !!(m.k === 'h' ? m.v : m.h);
+      else if (m.k === 't') B.rTap = true;
+      else if (m.k === 'c' && (m.i === 0 || m.i === 1)) { B.rq = m.i; B.remoteMult = clamp(+m.m || 0.5, 0.5, 1); }
+      else if (m.k === 'sw') {
+        const rs = B.sides[1];
+        if (!B.paused && rs.swCd <= 0 && rs.team[m.i] && rs.team[m.i].hp > 0 && m.i !== rs.i) { switchTo(1, m.i, true); rs.swCd = SWITCH_COOLDOWN; }
+      } else if (m.k === 'ans' && B.asks[m.id]) B.asks[m.id](m.v);
+      else if (m.k === 'ff') { msg(`${B.foe.name} forfeited!`); end(true); }
+    } else {
+      if (m.k === 'st') applyState(m);
+      else if (m.k === 'ev') guestEvent(m);
+      else if (m.k === 'ask') answerAsk(m);
+      else if (m.k === 'end') { applyStateEnd(); end(!m.w); }
+    }
+  }
+  function applyStateEnd() { B.paused = true; }
+
   function switchTo(si, idx, announce) {
     const side = B.sides[si];
     const old = act(side);
     old.st = { atk: 0, def: 0 };
     side.i = idx; side.cd = 0.5;
     renderSide(si);
+    netEv({ t: 'sw', si, i: idx });
     if (!si) B.used.add(act(side));
     if (announce) msg(si ? `${B.foe.name} switched to ${act(side).sp.name}!` : `Go, ${act(side).sp.name}!`);
   }
@@ -623,12 +741,21 @@ window.RGBattle = (() => {
     G.Music.sfx('faint');
     anim(si, 'faint');
     msg(`${who(si, act(side))} fainted!`);
+    netEv({ t: 'ft', si });
     await sleep(1000);
     if (!B) return;
     const alive = side.team.map((t, i) => ({ t, i })).filter(o => o.t.hp > 0);
     if (!alive.length) { end(si === 1); return; }
     let idx;
-    if (si === 1) {
+    if (si === 1 && B.net) {
+      msg(`Waiting for ${B.foe.name} to choose…`);
+      const want = await askRemote('pick', {}, 11000, alive[0].i);
+      idx = alive.some(o => o.i === want) ? want : alive[0].i;
+      if (!B) return;
+      switchTo(1, idx);
+      banner(`${B.foe.name} sent out ${act(side).sp.name}!`, B.foe.color);
+      await sleep(700);
+    } else if (si === 1) {
       const pl = act(B.sides[0]);
       idx = alive.map(o => ({ i: o.i, s: Math.max(...o.t.charged.map(c => effectiveness(c.type, pl.sp.types))) - Math.max(...pl.charged.map(c => effectiveness(c.type, o.t.sp.types))) }))
         .sort((x, y) => y.s - x.s)[0].i;
@@ -724,10 +851,11 @@ window.RGBattle = (() => {
       if (!B || B.paused || B.sides[0].swCd > 0) return;
       B.paused = true;
       const idx = await pickPrompt(false);
+      if (B && idx >= 0 && B.net && B.net.role === 'guest') { B.net.send({ k: 'sw', i: idx }); B.paused = false; return; }
       if (B && idx >= 0) { switchTo(0, idx, true); B.sides[0].swCd = SWITCH_COOLDOWN; }
       if (B) B.paused = false;
     };
-    $('#b-run').onclick = () => { if (B && !B.over) { msg('You forfeited the battle.'); end(false, true); } };
+    $('#b-run').onclick = () => { if (B && !B.over) { if (B.net && B.net.role === 'guest') B.net.send({ k: 'ff' }); msg('You forfeited the battle.'); end(false, true); } };
     addEventListener('keydown', e => {
       if (!B || B.over) return;
       const k = e.key.toLowerCase();
@@ -744,6 +872,24 @@ window.RGBattle = (() => {
     if (!B) return;
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     fxFrame(dt);
+    if (B.net && !B.over) {
+      if (Date.now() - B.netLast > 15000) { msg(`${B.foe.name} disconnected.`); end(true); }
+      else if (B.net.role === 'host') { B.netT -= dt; if (B.netT <= 0) { B.netT = 0.14; sendState(); } }
+      else {
+        // guest: send taps, holds and special moves to the host; the host sends back what happened
+        B.hbT -= dt;
+        if (B.holding !== B.lastHold || B.hbT <= 0) { B.lastHold = B.holding; B.hbT = 1; B.net.send({ k: 'h', v: B.holding }); }
+        if (B.tap) { B.tap = false; B.net.send({ k: 't' }); }
+        const mm = act(B.sides[0]);
+        if (B.queued !== null && !B.gBusy) {
+          const mv = mm.charged[B.queued], qi = B.queued; B.queued = null;
+          if (mv && mm.energy >= mv.cost && !B.paused) { B.gBusy = true; minigame(mv).then(mult => { if (B) { B.net.send({ k: 'c', i: qi, m: mult }); B.gBusy = false; } }); }
+        }
+        renderUI();
+        raf = requestAnimationFrame(frame);
+        return;
+      }
+    }
     if (!B.over && !B.paused) {
       B.t += dt;
       for (const side of B.sides) {
@@ -762,7 +908,7 @@ window.RGBattle = (() => {
           if (mm.energy >= mv.cost) runCharged(0, mv);
         } else if (B.holding || B.tap) { B.tap = false; doFast(0); }
       }
-      if (!B.paused) aiTick(dt);
+      if (!B.paused) { if (B.net) remoteTick(); else aiTick(dt); }
       for (const si of [0, 1]) if (!B.paused && act(B.sides[si]).hp <= 0 && !B.sides[si].fainting) handleFaint(si);
     }
     if (B && !B.over) renderUI();
@@ -773,6 +919,7 @@ window.RGBattle = (() => {
     if (!B || B.over) return;
     const b = B;
     b.over = true; b.paused = true;
+    if (b.net && b.net.role === 'host') { b.net.send({ k: 'end', w: win ? 1 : 0 }); setTimeout(() => b.net.send({ k: 'end', w: win ? 1 : 0 }), 600); }
     for (const id of ['#b-prompt', '#b-mini', '#b-pick']) $(id).classList.add('hidden');
     G.Music.sfx(win ? 'victory' : 'defeat');
     const boosts = [];
@@ -803,5 +950,5 @@ window.RGBattle = (() => {
     }, 1100);
   }
 
-  return { init, challenge, start, levelFromCP, movesFor, isActive: () => !!B, EFFECT_TEXT };
+  return { init, challenge, start, netMsg, levelFromCP, movesFor, isActive: () => !!B, EFFECT_TEXT };
 })();
