@@ -3,7 +3,7 @@
   'use strict';
   const { TYPES, RARITY, SHINY_ODDS, BALLS, ZONES, ZONE_HINTS, ARENAS, TRAINER_NAMES, SPECIES } = window.RG;
   const RG = window.RG;
-  const GAME_VERSION = 17;
+  const GAME_VERSION = 18;
   const GEO = window.RGGeo;
   const { W, H, PPM } = GEO;
   const Art = window.RGArt, Music = window.RGMusic, Battle = window.RGBattle, Online = window.RGOnline;
@@ -1414,9 +1414,97 @@
   // ---------------- buddy ----------------
   const BUD = { x: 0, y: 0, face: 1, moving: false, love: 0, uid: null };
   const buddyMon = () => (S.buddy ? S.caught.find(c => c.uid === S.buddy) : null);
+  // A hunter buddy (Drakonyx) flies out to Legendary and shiny Regimon, grabs them in its claws and brings them back.
+  const HUNT_RANGE = 1400;
+  function scentSpawn() {
+    const pool = SPECIES.filter(s => s.rarity >= 5 && !s.boss && !s.exclusive);
+    for (let tries = 0; tries < 20; tries++) {
+      const a = Math.random() * Math.PI * 2, r = rnd(420, 760), x = P.x + Math.cos(a) * r, y = P.y + Math.sin(a) * r;
+      if (x < 30 || y < 30 || x > W - 30 || y > H - 30 || !isSafe(x, y)) continue;
+      const sp = pool[Math.floor(Math.random() * pool.length)], shiny = Math.random() < 0.3;
+      const s = { sp, x, y, zone: zoneAt(x, y), shiny, phase: Math.random() * 6, born: performance.now(), expires: Date.now() + 180000, cp: rollCP(sp) };
+      spawns.push(s);
+      return s;
+    }
+    return null;
+  }
+  function updateHunt(dt, bsp) {
+    if (!bsp.hunter) { BUD.hunt = null; return false; }
+    if (!BUD.hunt) {
+      BUD.huntCd = (BUD.huntCd == null ? 6 : BUD.huntCd) - dt;
+      BUD.scentT = (BUD.scentT == null ? 180 : BUD.scentT) - dt;
+      if (BUD.huntCd > 0) return false;
+      BUD.huntCd = 3;
+      let tgt = spawns.filter(s => (s.shiny || s.sp.rarity >= 5) && !s.sp.boss && hyp(s.x, s.y, P.x, P.y) < HUNT_RANGE)
+        .sort((a, b) => hyp(a.x, a.y, P.x, P.y) - hyp(b.x, b.y, P.x, P.y))[0];
+      if (!tgt && BUD.scentT <= 0) {
+        BUD.scentT = 180;
+        tgt = scentSpawn();
+        if (tgt) toast(`🐉 <b>${bsp.name}</b> sniffed out something rare…`, 2500);
+      }
+      if (!tgt) return false;
+      BUD.hunt = { s: tgt, phase: 'out', t: 0 };
+      Music.sfx('charge');
+      toast(`🐉 <b>${bsp.name}</b> spotted a ${tgt.shiny ? '✨ shiny ' : ''}<b>${tgt.sp.name}</b> (${RARITY[tgt.sp.rarity].name}) and is flying to grab it!`, 3500);
+    }
+    const h = BUD.hunt;
+    h.t += dt;
+    const fly = (tx, ty, speed) => {
+      const dx = tx - BUD.x, dy = ty - BUD.y, d = Math.hypot(dx, dy);
+      if (Math.abs(dx) > 3) BUD.face = dx > 0 ? 1 : -1;
+      if (d <= speed * dt) { BUD.x = tx; BUD.y = ty; return true; }
+      BUD.x += dx / d * speed * dt; BUD.y += dy / d * speed * dt;
+      return false;
+    };
+    BUD.moving = true;
+    if (h.phase === 'out') {
+      if (!spawns.includes(h.s)) { BUD.hunt = null; toast('🐉 Too late — it got away.'); return true; }
+      if (fly(h.s.x, h.s.y, 560)) { h.phase = 'grab'; h.t = 0; Music.sfx('superhit'); }
+    } else if (h.phase === 'grab') {
+      if (h.t > 0.6) { spawns = spawns.filter(s => s !== h.s); h.phase = 'back'; Music.sfx('pop'); }
+    } else if (h.phase === 'back') {
+      if (fly(P.x - 40, P.y + 10, 480)) {
+        const s = h.s, sp = s.sp, d = dexEntry(sp.id), isNew = !d.caught;
+        d.seen++; d.caught++;
+        if (s.shiny) { d.shiny = (d.shiny || 0) + 1; S.shinies++; }
+        S.caught.push({ uid: S.nextUid++, sid: sp.id, cp: s.cp, t: Date.now(), ball: 'magna', shiny: s.shiny });
+        addCandy(sp, 3 + Math.min(4, sp.rarity - 1) * 2);
+        addXP(600 + (isNew ? 500 : 0) + (s.shiny ? 500 : 0));
+        qAdd('catch');
+        save();
+        BUD.hunt = null; BUD.love = 1.5; BUD.huntCd = 8;
+        Music.sfx('catch');
+        banner(`${s.shiny ? '✨ ' : ''}${sp.name.toUpperCase()}!`, `${bsp.name} caught it for you${isNew ? ' — new Regidex entry!' : ''}`);
+        renderNearby(); updateHUD();
+      }
+    }
+    return true;
+  }
+  // The buddy in the air: bigger, bobbing above its shadow, carrying its catch in its claws.
+  function drawHunter(c, t) {
+    const sp = byId[c.sid], h = BUD.hunt, alt = h.phase === 'grab' ? 26 : 62, s = 74;
+    const flap = 0.88 + 0.12 * Math.sin(t / 90);
+    ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.beginPath(); ctx.ellipse(BUD.x, BUD.y, 22, 7, 0, 0, 7); ctx.fill();
+    if (h.phase === 'back') {
+      const im2 = Art.img(h.s.sp, h.s.shiny);
+      if (im2.complete && im2.naturalWidth) ctx.drawImage(im2, BUD.x - 20, BUD.y - alt + 4, 40, 40);
+      if (h.s.shiny) { ctx.font = '14px "Segoe UI Emoji", sans-serif'; ctx.textAlign = 'center'; ctx.fillText('✨', BUD.x + 18, BUD.y - alt + 8); }
+    }
+    const im = Art.img(sp, c.shiny);
+    if (im.complete && im.naturalWidth) {
+      ctx.save(); ctx.translate(BUD.x, BUD.y - alt - s * 0.35); ctx.scale(-BUD.face, flap);
+      ctx.drawImage(im, -s / 2, -s / 2, s, s); ctx.restore();
+    }
+    if (h.phase === 'grab') {
+      const p = Math.min(1, h.t / 0.6);
+      ctx.strokeStyle = `rgba(250,204,21,${1 - p})`; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(BUD.x, BUD.y - 20, 20 + p * 30, 0, 7); ctx.stroke();
+    }
+  }
   function updateBuddy(dt) {
     const c = buddyMon();
-    if (!c) return;
+    if (!c) { BUD.hunt = null; return; }
+    if (updateHunt(dt, byId[c.sid])) return;
     if (BUD.uid !== c.uid || hyp(BUD.x, BUD.y, P.x, P.y) > 700) { BUD.uid = c.uid; BUD.x = P.x - 40; BUD.y = P.y + 10; }
     const dx = P.x - BUD.x, dy = P.y - BUD.y, d = Math.hypot(dx, dy);
     if (d > 46) {
@@ -1437,6 +1525,7 @@
   }
   function drawBuddy(t) {
     const c = buddyMon(); if (!c) return;
+    if (BUD.hunt) { drawHunter(c, t); return; }
     drawBuddyAt(byId[c.sid], c.shiny, BUD.x, BUD.y, BUD.face, BUD.moving, t, BUD.love);
   }
   function setBuddy(uid) {
@@ -1586,7 +1675,7 @@
     if (!S.casino || S.casino.day !== day) S.casino = { day, sold: [] };
     let a = hashStr('casino' + day);
     const r = () => { a = (a * 1103515245 + 12345) & 0x7fffffff; return a / 0x7fffffff; };
-    const top = SPECIES.filter(s => s.rarity >= 5 && !s.boss), mid = SPECIES.filter(s => s.rarity >= 3 && s.rarity <= 4);
+    const top = SPECIES.filter(s => s.rarity >= 5 && !s.boss && !s.exclusive), mid = SPECIES.filter(s => s.rarity >= 3 && s.rarity <= 4);
     const out = [];
     while (out.length < 8) {
       const pool = out.length < 3 ? top : mid, sp = pool[Math.floor(r() * pool.length)];
@@ -2681,7 +2770,7 @@
   function leagueBattle() {
     const opp = Math.max(800, Math.round(S.rating + rnd(-60, 90)));
     const f = clamp((opp - 1000) / 1000, -0.2, 1.2);
-    const pool = SPECIES.filter(s => s.rarity < 5 || opp >= 1600);
+    const pool = SPECIES.filter(s => (s.rarity < 5 || opp >= 1600) && !s.boss && !s.exclusive);
     const team = [];
     while (team.length < 3) {
       const w = pool.map(s => (s.rarity >= 3 ? 1 + f * 2 : 1.5 - f * 0.5));
@@ -2787,6 +2876,7 @@
 
   // ---------------- gift codes ----------------
   const GIFTS = {
+    'e9d08cbfbb677e60ec12c7ec35ad54c03f5978aa2611763823ea26d1c6646a1d': { sid: 314, cp: 3200, rare: 200, reusable: true, text: 'the exclusive Drakonyx' },
     '93826a9e0f160cdc23c13f3eb7648b7188b9206d2d9d282bde66df8132f2f133': { sid: 313, cp: 2600, text: 'the Mythic Umbravolt' },
     '1404b76cb20a74f08eab163dbf034da109650d17d93d00c42643bc1ea0fa66c6': { sid: 313, cp: 2600, text: 'the Mythic Umbravolt' },
   };
@@ -2822,11 +2912,12 @@
     const gift = GIFTS[hash];
     S.redeemed = S.redeemed || [];
     if (!gift) { toast(`🎁 That code doesn’t work. Check it for typos — and make sure you have the newest game (you’re on version ${GAME_VERSION}; reload the page to update).`, 5000); return; }
-    if (S.redeemed.includes(hash)) {
+    if (gift.rare) { S.rareCandy += gift.rare; save(); setTimeout(() => toast(`🍭 +${gift.rare} Rare Candy! You now have ${S.rareCandy}.`, 3500), 2600); }
+    if (!gift.reusable && S.redeemed.includes(hash)) {
       if (S.giftPending) { closeModal(); openGift(); } else toast('🎁 You already redeemed this code.');
       return;
     }
-    S.redeemed.push(hash);
+    if (!gift.reusable) S.redeemed.push(hash);
     S.giftPending = { sid: gift.sid, cp: gift.cp };
     save();
     closeModal();
@@ -2869,7 +2960,7 @@
         : `<p class="sub">${line.length > 1 ? '🌟 Fully evolved!' : 'This Regimon does not evolve.'}</p>`}
       ${movesHTML(s)}
       <div class="row"><button class="ghost" id="mon-back">← Back</button><button class="ghost" id="mon-dex">📖 Regidex</button><button class="ghost" id="mon-buddy">${S.buddy === c.uid ? '🐾 Stop following' : '🐾 Make buddy'}</button><button class="ghost" id="mon-transfer">🎁 Transfer (+1 🍬)</button></div>
-      ${S.buddy === c.uid ? '<p class="sub">🐾 This is your buddy! It follows you around and finds 3 🍬 every 1 km you walk together.</p>' : ''}
+      ${S.buddy === c.uid ? `<p class="sub">🐾 This is your buddy! It follows you around and finds 3 🍬 every 1 km you walk together.${s.hunter ? ' 🐉 It also hunts: it flies out to Legendary and shiny Regimon nearby, grabs them with its claws and brings them to you.' : ''}</p>` : (s.hunter ? '<p class="sub">🐉 Make it your buddy and it will hunt Legendary and shiny Regimon for you!</p>' : '')}
     </div>`);
     $('#mon-back').onclick = back;
     $('#mon-dex').onclick = () => showSpecies(s.id, () => showMon(uid, back));

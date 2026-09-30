@@ -105,6 +105,16 @@
     sig: ['Blackout Surge', 'Electric', 165, 80, 'stun'],
     desc: 'MYTHIC. A storm dragon that swallowed every light in the city during the Great Blackout. Only trainers who finish every quest ever see it.',
   });
+  // The code-exclusive dragon (#314). Never spawns in the wild; it has its own moves, hand-drawn art,
+  // and as a buddy it hunts Legendary and shiny Regimon for you.
+  RG.ZONES.exclusive = 'Exclusive — gift code only';
+  RG.SPECIES.push({
+    id: 314, name: 'Drakonyx', types: ['Electric', 'Dragon', 'Dark', 'Steel'], rarity: 7, habitat: ['exclusive'], body: 'tall',
+    color: '#241d4a', belly: '#a8b3c4', glow: '#facc15', eyes: 'fierce', extras: [], acc: '', art: 'dragon', exclusive: true, hunter: true,
+    moves: { fast: ['Vise Grip', 'Steel', 8, 7, 2], charged: [['Blackout Fang', 'Dark', 90, 50, 'defDown'], ['Hyper Beam', 'Dragon', 150, 75, 'stun']] },
+    sig: ['Hyper Beam', 'Dragon', 150, 75, 'stun'],
+    desc: 'EXCLUSIVE. An armored storm dragon with steel plates and lightning in its veins. As your buddy it swoops down, grabs Legendary and shiny Regimon in its claws, and brings them to you.',
+  });
   RG.EVOLVES = EVOLVES;
   RG.evolveCost = evolveCost;
   RG.familyOf = familyOf;

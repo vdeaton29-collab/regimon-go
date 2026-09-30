@@ -18,6 +18,7 @@ window.RGArt = (() => {
   const EMOJI_FONT = 'Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, sans-serif';
 
   function svg(sp) {
+    if (sp.art === 'dragon' && window.RGDragonArt) return window.RGDragonArt.draw(sp);
     const { cx, cy, rx, ry, ex } = GEO[sp.body];
     const c = sp.color, b = sp.belly, d = shade(c, -0.38), l = shade(c, 0.3);
     const X = e => (sp.extras || []).includes(e);

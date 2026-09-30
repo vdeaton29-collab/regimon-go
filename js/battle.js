@@ -69,6 +69,10 @@ window.RGBattle = (() => {
   const mkFast = t => { const [name, power, energy, turns] = FAST[t]; return { name, type: t, power, energy, turns }; };
   const mkCharged = (t, i) => { const [name, power, cost, effect] = CHARGED[t][i]; return { name, type: t, power, cost, effect }; };
   function movesFor(sp) {
+    if (sp.moves) {   // species with their own move set
+      const [fn, ft, fp, fe, fturns] = sp.moves.fast;
+      return { fast: { name: fn, type: ft, power: fp, energy: fe, turns: fturns }, charged: sp.moves.charged.map(([name, type, power, cost, effect], i) => ({ name, type, power, cost, effect, sig: i === sp.moves.charged.length - 1 })) };
+    }
     const t1 = sp.types[0], t2 = sp.types[1];
     const c1 = mkCharged(t1, 0);
     let c2 = t2 ? mkCharged(t2, 1) : mkCharged(t1, 1);
