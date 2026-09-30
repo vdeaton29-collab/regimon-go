@@ -3,7 +3,7 @@
   'use strict';
   const { TYPES, RARITY, SHINY_ODDS, BALLS, ZONES, ZONE_HINTS, ARENAS, TRAINER_NAMES, SPECIES } = window.RG;
   const RG = window.RG;
-  const GAME_VERSION = 18;
+  const GAME_VERSION = 19;
   const GEO = window.RGGeo;
   const { W, H, PPM } = GEO;
   const Art = window.RGArt, Music = window.RGMusic, Battle = window.RGBattle, Online = window.RGOnline;
@@ -2739,7 +2739,8 @@
     const row = (m, kind, meta) => `<div class="mv" style="--mt:${TYPES[m.type]}"><span class="dot"></span><b>${m.name}${m.sig ? ' ★' : ''}</b><small>${kind} · ${m.type} · ${meta}</small></div>`;
     return `<div class="moves"><h3>Battle moves</h3>
       ${row(mv.fast, 'Fast', `Power ${mv.fast.power} · +${mv.fast.energy}⚡`)}
-      ${mv.charged.map(c => row(c, c.sig ? 'Signature' : 'Special', `Power ${c.power} · ${c.cost}⚡${c.effect ? ' · ' + Battle.EFFECT_TEXT[c.effect] : ''}`)).join('')}
+      ${mv.charged.map(c => row(c, c.sig ? 'Signature' : 'Special', `Power ${c.power} · ${c.cost}⚡${c.effect ? ' · ' + Battle.EFFECT_TEXT[c.effect] : ''}${Battle.MOVE_TAGS(c)}`)).join('')}
+      ${s.typeless || s.thorns ? `<div class="mv" style="--mt:#facc15"><span class="dot"></span><b>Abilities</b><small>${[s.typeless ? 'No type weaknesses' : '', s.thorns ? `Shock armor: attackers take ${Math.round(s.thorns * 100)}% of the damage back` : ''].filter(Boolean).join(' · ')}</small></div>` : ''}
     </div>`;
   }
 
@@ -2764,8 +2765,14 @@
       <p class="sub">Ranked battles against AI trainers near your rating. Winning earns rating points; losing costs them. Opponents get stronger and smarter as you climb.</p>
       <div class="ranks">${RANKS.map(k => `<span class="${r >= k[0] ? 'got' : ''}">${k[2]} ${k[1]} <small>${k[0]}</small></span>`).join('')}</div>
       <div class="row"><button class="primary" id="lg-go">⚔️ Find a ranked battle</button></div>
+      <h3 style="margin-top:14px">🌐 Live PvP — battle real players</h3>
+      ${S.online ? '<div class="row"><button class="primary" id="lg-qm">⚡ Quick match</button><button class="ghost" id="lg-list">👥 Challenge a trainer</button></div>'
+        : '<p class="sub">Go online to battle other trainers live.</p><div class="row"><button class="ghost" id="lg-online">🌐 Go online</button></div>'}
     </div>`);
     $('#lg-go').onclick = () => { closeModal(); leagueBattle(); };
+    const qm = $('#lg-qm'); if (qm) qm.onclick = () => { closeModal(); startQuickMatch(); };
+    const ll = $('#lg-list'); if (ll) ll.onclick = () => showOnline();
+    const lo = $('#lg-online'); if (lo) lo.onclick = () => { setOnline(true); if (S.online) showLeague(); };
   }
   function leagueBattle() {
     const opp = Math.max(800, Math.round(S.rating + rnd(-60, 90)));
@@ -3414,7 +3421,7 @@
     if (on) {
       Online.start({
         id: S.pid, world: { W, H },
-        getState: () => ({ n: S.name, l: S.level, h: zoneName, live: S.mode === 'live', f: P.face, mv: P.moving, ...(buddyMon() ? { b: buddyMon().sid, bs: buddyMon().shiny ? 1 : 0 } : {}),
+        getState: () => ({ ...(QM.on ? { q: 1 } : {}), n: S.name, l: S.level, h: zoneName, live: S.mode === 'live', f: P.face, mv: P.moving, ...(buddyMon() ? { b: buddyMon().sid, bs: buddyMon().shiny ? 1 : 0 } : {}),
           ...(S.mode === 'live' ? {} : { x: Math.round(P.x), y: Math.round(P.y) }) }),
         onStatus: paintOnline,
         onWave: from => { Music.sfx('ready'); toast(`👋 <b>${esc(from)}</b> waved at you!`, 3000); },
@@ -3430,9 +3437,10 @@
       <p class="sub">${Online.isConnected() ? `${list.length} other trainer${list.length === 1 ? '' : 's'} playing right now` : 'Connecting…'}</p>
       <div class="peers">${list.map(p => `<div class="peer"><span class="peer-av" style="background:${lookFor(p.id).blazer}">${esc(p.name[0] || '?')}</span>
         <span class="grow"><b>${esc(p.name)}</b><small>Lv ${p.lvl} · ${esc(p.hood || 'Somewhere in NYC')}${p.live ? ' · 🛰️ Live' : ''}</small></span>
-        <button class="ghost" data-peer="${esc(p.id)}">Meet ›</button></div>`).join('') || '<p class="sub" style="text-align:center;padding:20px 0">Nobody else is online right now. Invite a friend!</p>'}</div>
+        <button class="ghost" data-duel="${esc(p.id)}">⚔️</button><button class="ghost" data-peer="${esc(p.id)}">Meet ›</button></div>`).join('') || '<p class="sub" style="text-align:center;padding:20px 0">Nobody else is online right now. Invite a friend!</p>'}</div>
       <div class="row"><button class="ghost danger" id="go-solo">Go solo</button></div>`);
     document.querySelectorAll('[data-peer]').forEach(el => { el.onclick = () => peerMenu(el.dataset.peer, showOnline); });
+    document.querySelectorAll('[data-duel]').forEach(el => { el.onclick = () => inviteDuel(el.dataset.duel); });
     $('#go-solo').onclick = () => { setOnline(false); closeModal(); };
   }
   $('#online-chip').onclick = showOnline;
@@ -3625,7 +3633,7 @@
   // Duels are live PvP battles: both trainers pick a team, then battle each other in real time.
   // The challenger's game runs the battle; the other player's taps are sent over the network.
   let duel = null;
-  const DUEL_TIMEOUT = 45000;
+  const DUEL_TIMEOUT = 90000;
   function teamMsg(entries) { return entries.slice(0, 3).map(c => [c.sid, c.cp, c.shiny ? 1 : 0]); }
   function readTeam(t) {
     if (!Array.isArray(t) || !t.length || t.length > 3) return null;
@@ -3644,20 +3652,46 @@
       shinies: team.map(m => m.shiny), color: '#7c3aed', icon: '🌐', tier: 4, levelMult: 1, levelAdd: 0, smart: 0.9, skill: 0.92, music: 'duel',
     }, extra);
   }
+  const bestTeam = () => [...S.caught].sort((a, b) => b.cp - a.cp).slice(0, 3);
+  // You can't take a PvP invite in the middle of a battle, a catch, a minigame or the casino.
+  const busyForDuel = () => !!duel || Battle.isActive() || mode !== 'map';
+  function duelExpire(d, text) {
+    if (!duel || duel.id !== d || duel.fighting) return;
+    duel = null; hidePop(); closeModal(); if (text) toast(text, 3500);
+  }
+  function sendInvite(pid, name, team, qm) {
+    const d = Math.random().toString(36).slice(2, 10);
+    duel = { id: d, pid, name, mine: team, role: 'host', qm, timer: setTimeout(() => duelExpire(d, `⌛ ${esc(name)} didn't answer.`), DUEL_TIMEOUT) };
+    Online.duel(pid, { k: 'inv', d, l: S.level, gv: GAME_VERSION, qm: qm ? 1 : 0, team: teamMsg(team) });
+    if (qm) return;
+    openModal(`<div class="result"><div class="bigemoji">⚔️</div><h2>Battle invite sent</h2><p class="sub" id="duel-wait">Waiting for <b>${esc(name)}</b> to accept…</p>
+      <button class="ghost" id="duel-cancel">Cancel</button></div>`);
+    $('#duel-cancel').onclick = () => { Online.duel(pid, { k: 'cancel', d }); clearTimeout(duel && duel.timer); duel = null; closeModal(); };
+  }
   function inviteDuel(pid) {
     const p = Online.get(pid);
-    if (!p) return;
-    if (duel) { toast('⚔️ You already have a duel going.'); return; }
+    if (!p) { toast('That trainer went offline.'); return; }
+    if (duel) { toast('⚔️ You already have a battle going.'); return; }
+    if (!Online.isConnected()) { toast('🌐 Still connecting…'); return; }
     closeModal();
-    Battle.challenge({ name: p.name, title: 'Pick your duel team', quote: 'Your team will face theirs.', team: [], color: '#7c3aed', icon: '🌐',
-      onPick: team => {
-        const d = Math.random().toString(36).slice(2, 10);
-        duel = { id: d, pid, name: p.name, mine: team, role: 'host', timer: setTimeout(() => { if (duel && duel.id === d && !duel.theirs) { duel = null; closeModal(); toast(`⌛ ${esc(p.name)} didn't answer.`); } }, DUEL_TIMEOUT) };
-        Online.duel(pid, { k: 'inv', d, l: S.level, team: teamMsg(team) });
-        openModal(`<div class="result"><div class="bigemoji">⚔️</div><h2>Duel invite sent</h2><p class="sub">Waiting for <b>${esc(p.name)}</b> to accept…</p>
-          <button class="ghost" id="duel-cancel">Cancel</button></div>`);
-        $('#duel-cancel').onclick = () => { Online.duel(pid, { k: 'cancel', d }); clearTimeout(duel.timer); duel = null; closeModal(); };
-      } });
+    Battle.challenge({ name: p.name, title: 'Pick your PvP team', quote: 'Your team will face theirs — live.', team: [], color: '#7c3aed', icon: '🌐',
+      onPick: team => sendInvite(pid, p.name, team, false) });
+  }
+  // The invite pop-up sits above everything, so it works even if a menu is open.
+  function showPop(html) {
+    let el = $('#duel-pop');
+    if (!el) { el = document.createElement('div'); el.id = 'duel-pop'; document.body.appendChild(el); }
+    el.innerHTML = html; el.classList.remove('hidden');
+    return el;
+  }
+  function hidePop() { const el = $('#duel-pop'); if (el) el.classList.add('hidden'); }
+  function acceptDuel(team) {
+    const dd = duel; if (!dd) return;
+    dd.mine = team;
+    Online.duel(dd.pid, { k: 'acc', d: dd.id, team: teamMsg(team) });
+    setTimeout(() => { if (duel === dd && !dd.fighting) Online.duel(dd.pid, { k: 'acc', d: dd.id, team: teamMsg(team) }); }, 700);
+    stopQuickMatch();
+    fightDuel();
   }
   function onDuel(m) {
     if ((S.muted || []).includes(m.from) || typeof m.d !== 'string' || m.d.length > 12) return;
@@ -3665,41 +3699,82 @@
     if (m.k === 'inv') {
       const team = readTeam(m.team);
       if (!team) return;
-      if (duel || mode !== 'map' || modalOpen || Battle.isActive()) { Online.duel(m.from, { k: 'dec', d: m.d, busy: 1 }); return; }
-      duel = { id: m.d, pid: m.from, name, theirs: team, role: 'guest', timer: setTimeout(() => { if (duel && duel.id === m.d && !duel.mine) { duel = null; closeModal(); } }, DUEL_TIMEOUT) };
+      if ((m.gv | 0) !== GAME_VERSION) {
+        Online.duel(m.from, { k: 'dec', d: m.d, ver: GAME_VERSION });
+        toast(`⚔️ <b>${esc(name)}</b> wants to battle, but you're on different game versions (you: ${GAME_VERSION}, them: ${(m.gv | 0) || 'old'}). Both reload the page, then try again.`, 6000);
+        return;
+      }
+      if (busyForDuel()) { Online.duel(m.from, { k: 'dec', d: m.d, busy: 1 }); return; }
+      const d = m.d;
+      duel = { id: d, pid: m.from, name, theirs: team, role: 'guest', timer: setTimeout(() => duelExpire(d, `⌛ The battle invite from ${esc(name)} expired.`), DUEL_TIMEOUT) };
+      if (m.qm && QM.on) { closeModal(); toast(`⚡ Quick match found: <b>${esc(name)}</b>!`, 2500); acceptDuel(bestTeam()); return; }
       Music.sfx('encounter');
-      openModal(`<div class="result"><div class="bigemoji">⚔️</div><h2>${esc(name)} challenges you!</h2>
-        <p class="sub">Lv ${Math.max(1, Math.min(999, m.l | 0))} trainer · Online duel</p>
+      showPop(`<b>⚔️ ${esc(name)} challenges you to a live battle!</b><small>Lv ${Math.max(1, Math.min(999, m.l | 0))} trainer</small>
         <div class="ch-team">${team.map(t => `<img src="${Art.url(byId[t.sid], t.shiny)}" alt="" title="${byId[t.sid].name} · CP ${t.cp}">`).join('')}</div>
-        <div class="row"><button class="ghost" id="duel-no">Decline</button><button class="primary" id="duel-yes">⚔️ Accept</button></div></div>`, () => {
-          if (duel && duel.id === m.d && !duel.mine && !duel.picking) { Online.duel(m.from, { k: 'dec', d: m.d }); clearTimeout(duel.timer); duel = null; }
-        });
-      $('#duel-no').onclick = () => closeModal();
-      $('#duel-yes').onclick = () => {
-        duel.picking = true; clearTimeout(duel.timer);
-        closeModal();
-        Battle.challenge(duelFoe(name, team, { onPick: mine => {
-          if (!duel || duel.id !== m.d) return;
-          duel.mine = mine;
-          Online.duel(m.from, { k: 'acc', d: m.d, team: teamMsg(mine) });
-          fightDuel();
-        } }));
+        <div class="pop-btns"><button class="ghost" id="dp-no">Decline</button><button class="ghost" id="dp-pick">Pick team</button><button class="primary" id="dp-best">⚔️ Battle with my best</button></div>`);
+      $('#dp-no').onclick = () => { hidePop(); Online.duel(m.from, { k: 'dec', d }); clearTimeout(duel && duel.timer); duel = null; };
+      $('#dp-best').onclick = () => { hidePop(); closeModal(); acceptDuel(bestTeam()); };
+      $('#dp-pick').onclick = () => {
+        hidePop(); closeModal();
+        Online.duel(m.from, { k: 'acc0', d });   // "I'm picking my team" keeps the challenger waiting
+        clearTimeout(duel.timer); duel.timer = setTimeout(() => duelExpire(d, '⌛ The battle timed out.'), DUEL_TIMEOUT);
+        Battle.challenge(duelFoe(name, team, {
+          onPick: mine => { if (duel && duel.id === d) acceptDuel(mine); },
+          onCancel: () => { if (duel && duel.id === d && !duel.fighting) { Online.duel(m.from, { k: 'dec', d }); clearTimeout(duel.timer); duel = null; } },
+        }));
       };
     } else if (!duel || duel.id !== m.d || duel.pid !== m.from) {
       return;
+    } else if (m.k === 'acc0' && duel.role === 'host') {
+      clearTimeout(duel.timer); const d = duel.id;
+      duel.timer = setTimeout(() => duelExpire(d, `⌛ ${esc(name)} took too long to pick a team.`), DUEL_TIMEOUT);
+      const w = $('#duel-wait'); if (w) w.innerHTML = `<b>${esc(name)}</b> accepted and is picking their team…`;
     } else if (m.k === 'acc' && duel.role === 'host' && !duel.theirs) {
       const team = readTeam(m.team);
       if (!team) return;
       clearTimeout(duel.timer);
       duel.theirs = team;
-      closeModal();
+      closeModal(); stopQuickMatch();
       fightDuel();
     } else if (m.k === 'dec' || m.k === 'cancel') {
       if (duel.fighting) return;
-      clearTimeout(duel.timer); duel = null; closeModal();
-      toast(m.k === 'cancel' ? `${esc(name)} cancelled the duel.` : m.busy ? `${esc(name)} is busy right now.` : `${esc(name)} declined the duel.`);
+      const wasQm = duel.qm;
+      clearTimeout(duel.timer); duel = null; hidePop();
+      if (wasQm) return;   // quick match just keeps looking
+      closeModal();
+      toast(m.k === 'cancel' ? `${esc(name)} cancelled the battle.` : m.ver ? `${esc(name)} is on a different game version (${m.ver | 0} vs your ${GAME_VERSION}). Both reload the page.` : m.busy ? `${esc(name)} is busy right now — try again in a moment.` : `${esc(name)} declined the battle.`, 4000);
     }
   }
+
+  // ---------------- quick match: find another trainer who's looking for a battle ----------------
+  const QM = { on: false, timer: 0, t0: 0 };
+  function startQuickMatch() {
+    if (!S.online) { toast('🌐 Go online first (tap the Solo chip).'); return; }
+    if (!Online.isConnected()) { toast('🌐 Still connecting…'); return; }
+    if (!S.caught.length) { toast('Catch a Regimon first!'); return; }
+    if (duel) { toast('⚔️ You already have a battle going.'); return; }
+    QM.on = true; QM.t0 = Date.now();
+    const paint = () => {
+      const n = Online.list().filter(p => p.q).length, s = Math.floor((Date.now() - QM.t0) / 1000);
+      const el = $('#qm-status'); if (el) el.innerHTML = `Searching… ${s}s · ${n} other trainer${n === 1 ? '' : 's'} looking for a battle`;
+    };
+    openModal(`<div class="result"><div class="bigemoji">⚡</div><h2>Quick match</h2>
+      <p class="sub">Looking for another trainer who wants a live battle. Your 3 strongest Regimon will fight.</p>
+      <p class="sub" id="qm-status">Searching…</p><button class="ghost" id="qm-cancel">Stop searching</button></div>`, () => stopQuickMatch());
+    $('#qm-cancel').onclick = () => closeModal();
+    clearInterval(QM.timer);
+    QM.timer = setInterval(() => {
+      if (!QM.on) return;
+      paint();
+      if (Date.now() - QM.t0 > 120000) { stopQuickMatch(); closeModal(); toast('⚡ Nobody else is searching right now. Try again, or challenge someone from the trainer list.', 4500); return; }
+      if (duel) return;
+      // the trainer with the smaller id sends the invite, so two searchers don't invite each other at once
+      const other = Online.list().filter(p => p.q && S.pid < p.id).sort((a, b) => a.id < b.id ? -1 : 1)[0];
+      if (other) sendInvite(other.id, other.name, bestTeam(), true);
+    }, 1000);
+    paint();
+  }
+  function stopQuickMatch() { QM.on = false; clearInterval(QM.timer); }
   function fightDuel() {
     const dd = duel;
     dd.fighting = true;

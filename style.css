@@ -718,3 +718,14 @@ body.in-casino #nearby, body.in-casino #zone-chip, body.in-casino #hud, body.in-
 .card.red { color: #b91c1c; }
 .card.back { background: repeating-linear-gradient(45deg, #7c3aed 0 6px, #4c1d95 6px 12px); }
 .card.empty { background: rgba(255,255,255,.15); box-shadow: none; }
+
+/* ---------- PvP invite pop-up ---------- */
+#duel-pop { position: fixed; left: 50%; top: calc(70px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 120; width: min(420px, calc(100vw - 24px));
+  background: #1e1b4b; color: #fff; border: 2px solid #a78bfa; border-radius: 18px; padding: 14px; box-shadow: 0 12px 34px rgba(0,0,0,.45); text-align: center;
+  display: flex; flex-direction: column; gap: 6px; animation: pop-in .25s ease-out; }
+#duel-pop.hidden { display: none; }
+#duel-pop small { opacity: .8; }
+#duel-pop .ch-team { background: rgba(255,255,255,.08); }
+#duel-pop .pop-btns { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+#duel-pop .ghost { background: rgba(255,255,255,.15); color: #fff; }
+@keyframes pop-in { from { transform: translate(-50%, -20px); opacity: 0; } }

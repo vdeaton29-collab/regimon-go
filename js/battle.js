@@ -38,6 +38,7 @@ window.RGBattle = (() => {
     Dragon: [['Dragon Claw', 65, 35], ['Outrage', 120, 70]],
     Ice: [['Icicle Spear', 70, 40, 'stun'], ['Blizzard', 115, 65]],
   };
+  const MOVE_TAGS = mv => (mv.pierce ? ' · Pierces shields' : '') + (mv.minDmg ? ` · At least ${mv.minDmg} damage` : '');
   const EFFECT_TEXT = { atkUp: 'Attack ▲', defDown: 'Foe Def ▼', burn: 'Burns', stun: 'Stuns', drain: 'Drains HP' };
 
   // attacker type -> [super effective against, not very effective against]
@@ -71,7 +72,7 @@ window.RGBattle = (() => {
   function movesFor(sp) {
     if (sp.moves) {   // species with their own move set
       const [fn, ft, fp, fe, fturns] = sp.moves.fast;
-      return { fast: { name: fn, type: ft, power: fp, energy: fe, turns: fturns }, charged: sp.moves.charged.map(([name, type, power, cost, effect], i) => ({ name, type, power, cost, effect, sig: i === sp.moves.charged.length - 1 })) };
+      return { fast: { name: fn, type: ft, power: fp, energy: fe, turns: fturns }, charged: sp.moves.charged.map(([name, type, power, cost, effect, opts], i) => ({ name, type, power, cost, effect, sig: i === sp.moves.charged.length - 1, ...(opts || {}) })) };
     }
     const t1 = sp.types[0], t2 = sp.types[1];
     const c1 = mkCharged(t1, 0);
@@ -105,8 +106,10 @@ window.RGBattle = (() => {
   const stage = s => (s >= 0 ? 1 + 0.25 * s : 1 / (1 + 0.25 * -s));
   function calcDamage(a, d, move, mult = 1) {
     const stab = a.sp.types.includes(move.type) ? 1.2 : 1;
-    const eff = effectiveness(move.type, d.sp.types);
-    return { dmg: Math.floor(0.5 * move.power * (a.atk * stage(a.st.atk)) / (d.def * stage(d.st.def)) * stab * eff * mult) + 1, eff };
+    let eff = d.sp.typeless ? 1 : effectiveness(move.type, d.sp.types);   // typeless: no weaknesses or resistances
+    if (a.sp.typeless && eff < 1) eff = 1;                                // …and its own attacks are never resisted
+    const dmg = Math.floor(0.5 * move.power * (a.atk * stage(a.st.atk)) / (d.def * stage(d.st.def)) * stab * eff * mult) + 1;
+    return { dmg: Math.max(dmg, move.minDmg || 0), eff };
   }
 
   // ======================= visual effects =======================
@@ -343,6 +346,7 @@ window.RGBattle = (() => {
     if (!S.caught.length) { G.toast('Catch a Regimon first — you need a team to battle!'); return; }
     const list = [...S.caught].sort((a, b) => b.cp - a.cp).slice(0, 80);
     const picked = list.slice(0, 3).map(c => c.uid);
+    let chosen = false;
     const preview = foe.team.map(id => `<img src="${G.Art.url(G.byId[id])}" alt="${G.byId[id].name}" title="${G.byId[id].name}">`).join('');
     const render = keep => {
       G.openModal(`<div class="challenge" style="--arena:${foe.color}">
@@ -363,7 +367,7 @@ window.RGBattle = (() => {
             <span class="mini-types">${sp.types.map(t => `<i style="background:${G.TYPES[t]}"></i>`).join('')}</span></button>`;
         }).join('')}</div>
         <div class="row sticky"><button class="primary" id="ch-go" ${picked.length ? '' : 'disabled'}>⚔️ Battle!</button></div>
-      </div>`);
+      </div>`, () => { if (!chosen && foe.onCancel) foe.onCancel(); });
       if (keep) $('#modal .sheet').scrollTop = keep;
       document.querySelectorAll('#modal-body .pick .card').forEach(el => {
         el.onclick = () => {
@@ -374,6 +378,7 @@ window.RGBattle = (() => {
       });
       $('#ch-go').onclick = () => {
         const team = picked.map(uid => S.caught.find(c => c.uid === uid)).filter(Boolean);
+        chosen = true;
         G.closeModal();
         if (foe.onPick) foe.onPick(team); else start(foe, team);
       };
@@ -492,6 +497,15 @@ window.RGBattle = (() => {
   }
 
   // ---------- actions ----------
+  // Shock armor: a defender with 'thorns' zaps back part of the damage it takes.
+  function thorns(si, dmg) {
+    const a = act(B.sides[si]), d = act(B.sides[1 - si]);
+    if (!d.sp.thorns || dmg <= 0 || a.hp <= 0) return 0;
+    const r = Math.max(2, Math.round(dmg * d.sp.thorns));
+    a.hp = Math.max(0, a.hp - r);
+    setTimeout(() => { if (B) floatText(si, '⚡-' + r, 'small'); }, 250);
+    return r;
+  }
   const netEv = e => { if (B && B.net && B.net.role === 'host') B.net.send({ k: 'ev', ...e }); };
   function doFast(si) {
     const side = B.sides[si], a = act(side), d = act(B.sides[1 - si]);
@@ -505,7 +519,8 @@ window.RGBattle = (() => {
     typeFx(mv.type, centerOf(si ? '#bf-img' : '#bm-img'), centerOf(si ? '#bm-img' : '#bf-img'), false);
     G.Music.attack(mv.type, false);
     floatText(1 - si, `-${dmg}`, eff > 1 ? 'super small' : 'small');
-    netEv({ t: 'f', si, d: dmg, e: eff });
+    const zap = thorns(si, dmg);
+    netEv({ t: 'f', si, d: dmg, e: eff, r: zap });
   }
 
   async function runCharged(si, mv) {
@@ -525,7 +540,8 @@ window.RGBattle = (() => {
     else { msg(`${who(1, a)} is charging ${mv.name}!`); await sleep(750); mult = clamp(B.foe.skill * rnd(0.88, 1.06), 0.5, 1); }
     if (!B) return;
     let shielded = false;
-    if (other.shields > 0) {
+    if (other.shields > 0 && mv.pierce) { banner('Shield piercing!', G.TYPES[mv.type]); msg(`${mv.name} can't be blocked!`); await sleep(500); }
+    else if (other.shields > 0) {
       shielded = si === 1 ? await shieldPrompt(mv, a) : B.net ? await askRemote('shield', { c: a.charged.indexOf(mv) }, 3800, false) : aiShield(a, d, mv, mult);
     }
     if (!B) return;
@@ -551,7 +567,8 @@ window.RGBattle = (() => {
       if (!B) return;
       const { dmg, eff } = calcDamage(a, d, mv, mult);
       d.hp = Math.max(0, d.hp - dmg);
-      netEv({ t: 'ch', si, c: a.charged.indexOf(mv), d: dmg, e: eff });
+      const zap = thorns(si, dmg);
+      netEv({ t: 'ch', si, c: a.charged.indexOf(mv), d: dmg, e: eff, r: zap });
       shake(true);
       anim(1 - si, 'hurt');
       floatText(1 - si, `-${dmg}`, eff > 1 ? 'super' : '');
@@ -666,6 +683,7 @@ window.RGBattle = (() => {
       anim(L, 'lunge'); setTimeout(() => { if (B) anim(1 - L, 'hurt'); }, 120);
       typeFx(a.fast.type, from, to, false); G.Music.attack(a.fast.type, false);
       floatText(1 - L, `-${e.d | 0}`, e.e > 1 ? 'super small' : 'small');
+      if (e.r) setTimeout(() => { if (B) floatText(L, '⚡-' + (e.r | 0), 'small'); }, 250);
     } else if (e.t === 'cs') {
       const mv = a.charged[e.c]; if (!mv) return;
       banner(`${who(L, a)} used ${mv.name}!`, G.TYPES[mv.type]); G.Music.sfx('charge');
@@ -684,6 +702,7 @@ window.RGBattle = (() => {
         setTimeout(() => {
           if (!B) return;
           shake(true); anim(1 - L, 'hurt'); floatText(1 - L, `-${e.d | 0}`, e.e > 1 ? 'super' : '');
+          if (e.r) setTimeout(() => { if (B) floatText(L, '⚡-' + (e.r | 0), 'small'); }, 250);
           const notes = [e.e > 1 ? 'Super effective!' : e.e < 1 ? 'Not very effective…' : '', mv.effect ? EFFECT_TEXT[mv.effect] + '!' : ''].filter(Boolean);
           if (notes.length) msg(notes.join(' '));
         }, impact * 1000);
@@ -954,5 +973,5 @@ window.RGBattle = (() => {
     }, 1100);
   }
 
-  return { init, challenge, start, netMsg, levelFromCP, movesFor, isActive: () => !!B, EFFECT_TEXT };
+  return { MOVE_TAGS, init, challenge, start, netMsg, levelFromCP, movesFor, isActive: () => !!B, EFFECT_TEXT };
 })();
