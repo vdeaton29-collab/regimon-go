@@ -388,11 +388,14 @@ window.RGBattle = (() => {
 
   function start(foe, entries) {
     if (foe.skill == null) foe.skill = clamp(0.55 + foe.smart * 0.45, 0.5, 1);   // how well the AI times its special attacks
-    const myTeam = entries.map(c => makeMon(G.byId[c.sid], levelFromCP(c.cp), c));
+    let myTeam = entries.map(c => makeMon(G.byId[c.sid], levelFromCP(c.cp), c));
     const avg = myTeam.reduce((s, m) => s + m.level, 0) / myTeam.length;
     // Duels pass the other player's real levels; AI trainers scale to your team.
-    const foeTeam = foe.team.map((id, i) => makeMon(G.byId[id], foe.levels ? foe.levels[i] : Math.max(4, Math.round(avg * foe.levelMult + foe.levelAdd + i)),
+    let foeTeam = foe.team.map((id, i) => makeMon(G.byId[id], foe.levels ? foe.levels[i] : Math.max(4, Math.round(avg * foe.levelMult + foe.levelAdd + i)),
       foe.shinies ? { shiny: !!foe.shinies[i] } : null));
+    // Some Regimon (Drakonyx) always battle a set number of levels above the strongest Regimon on the other team.
+    const lift = (team, other) => team.map(m => (m.sp.levelAbove ? makeMon(m.sp, Math.max(...other.map(o => o.level)) + m.sp.levelAbove, m.entry) : m));
+    [myTeam, foeTeam] = [lift(myTeam, foeTeam), lift(foeTeam, myTeam)];
     const side = (team, ai, name) => ({ team, i: 0, shields: 2, cd: 0.4, swCd: 0, ai, name, react: 0, switches: 0, fainting: false, ready: [false, false] });
     B = { foe, sides: [side(myTeam, false, 'You'), side(foeTeam, true, foe.name)], paused: true, over: false, t: 0, holding: false, tap: false, queued: null, used: new Set([myTeam[0]]), ui: {},
       net: foe.net || null, netLast: Date.now() + 15000, netT: 0, netSeq: -1, seq: 0, rHold: false, rTap: false, rq: null, asks: {}, askN: 0, lastHold: false, hbT: 0, gBusy: false };

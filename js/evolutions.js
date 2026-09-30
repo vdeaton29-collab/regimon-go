@@ -111,7 +111,7 @@
   RG.SPECIES.push({
     id: 314, name: 'Drakonyx', types: ['Electric', 'Dragon', 'Dark', 'Steel'], rarity: 7, habitat: ['exclusive'], body: 'tall',
     color: '#241d4a', belly: '#a8b3c4', glow: '#facc15', eyes: 'fierce', extras: [], acc: '', art: 'dragon', exclusive: true, hunter: true,
-    typeless: true, thorns: 0.3,
+    typeless: true, thorns: 0.3, levelAbove: 50,
     moves: { fast: ['Vise Grip', 'Steel', 8, 7, 2], charged: [['Blackout Fang', 'Dark', 90, 50, 'defDown', { minDmg: 50 }], ['Hyper Beam', 'Dragon', 150, 75, 'stun', { pierce: true }]] },
     sig: ['Hyper Beam', 'Dragon', 150, 75, 'stun'],
     desc: 'EXCLUSIVE. An armored storm dragon with steel plates and lightning in its veins. It has no type weaknesses, its shock armor zaps anything that hits it, and its Hyper Beam smashes through shields. As your buddy it swoops down, grabs Legendary and shiny Regimon in its claws, and brings them to you.',

@@ -3,7 +3,7 @@
   'use strict';
   const { TYPES, RARITY, SHINY_ODDS, BALLS, ZONES, ZONE_HINTS, ARENAS, TRAINER_NAMES, SPECIES } = window.RG;
   const RG = window.RG;
-  const GAME_VERSION = 19;
+  const GAME_VERSION = 20;
   const GEO = window.RGGeo;
   const { W, H, PPM } = GEO;
   const Art = window.RGArt, Music = window.RGMusic, Battle = window.RGBattle, Online = window.RGOnline;
@@ -2740,7 +2740,7 @@
     return `<div class="moves"><h3>Battle moves</h3>
       ${row(mv.fast, 'Fast', `Power ${mv.fast.power} · +${mv.fast.energy}⚡`)}
       ${mv.charged.map(c => row(c, c.sig ? 'Signature' : 'Special', `Power ${c.power} · ${c.cost}⚡${c.effect ? ' · ' + Battle.EFFECT_TEXT[c.effect] : ''}${Battle.MOVE_TAGS(c)}`)).join('')}
-      ${s.typeless || s.thorns ? `<div class="mv" style="--mt:#facc15"><span class="dot"></span><b>Abilities</b><small>${[s.typeless ? 'No type weaknesses' : '', s.thorns ? `Shock armor: attackers take ${Math.round(s.thorns * 100)}% of the damage back` : ''].filter(Boolean).join(' · ')}</small></div>` : ''}
+      ${s.typeless || s.thorns || s.levelAbove ? `<div class="mv" style="--mt:#facc15"><span class="dot"></span><b>Abilities</b><small>${[s.typeless ? 'No type weaknesses' : '', s.thorns ? `Shock armor: attackers take ${Math.round(s.thorns * 100)}% of the damage back` : '', s.levelAbove ? `Always battles ${s.levelAbove} levels above its strongest opponent` : ''].filter(Boolean).join(' · ')}</small></div>` : ''}
     </div>`;
   }
 
