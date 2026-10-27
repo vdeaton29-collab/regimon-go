@@ -105,5 +105,12 @@ window.RGCloud = (() => {
     if (!stored.length) throw new Error('not stored');
     return Date.now();
   }
-  return { available, derive, exists, save, load };
+  // Player tracker: a small public record (name, level, playtime — never location) kept as a retained message
+  // on regimongo/v1/stats/<player id>, so tracker.html can list every trainer, including ones who aren't online.
+  async function report(id, record) {
+    if (!window.WebSocket || typeof id !== 'string' || !/^[a-z0-9]{4,20}$/.test(id)) return false;
+    const stored = await ask((br, t) => session(br, 'regimongo/v1/stats/' + id, JSON.stringify(record), t).then(() => true), 10000);
+    return stored.length > 0;
+  }
+  return { available, derive, exists, save, load, report };
 })();

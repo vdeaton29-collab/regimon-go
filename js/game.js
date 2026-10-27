@@ -3,7 +3,7 @@
   'use strict';
   const { TYPES, RARITY, SHINY_ODDS, BALLS, ZONES, ZONE_HINTS, ARENAS, TRAINER_NAMES, SPECIES } = window.RG;
   const RG = window.RG;
-  const GAME_VERSION = 20;
+  const GAME_VERSION = 21;
   const GEO = window.RGGeo;
   const { W, H, PPM } = GEO;
   const Art = window.RGArt, Music = window.RGMusic, Battle = window.RGBattle, Online = window.RGOnline;
@@ -3042,7 +3042,7 @@
     const item = (ico, name, n, sub) => `<div class="item">${ico}<div class="grow">${name}<small>${sub}</small></div><b>×${n}</b></div>`;
     const km = (S.walked / 1000).toFixed(S.walked < 10000 ? 2 : 1);
     openModal(`<h2>👑 Trainer</h2>
-      <p class="sub">Level ${S.level} · ${S.xp} / ${xpNeed(S.level)} XP to next level</p>
+      <p class="sub">Level ${S.level} · ${S.xp} / ${xpNeed(S.level)} XP to next level · ⏱️ ${fmtPlay(S.play.sec + S.play.est)} played</p>
       <div class="progress"><div style="width:${(S.xp / xpNeed(S.level)) * 100}%"></div></div>
       <div class="stats">
         <div><b>${S.caught.length}</b><span>Caught</span></div>
@@ -3060,7 +3060,7 @@
         <button class="mode ${S.online ? '' : 'on'}" id="online-off"><b>🔒 Solo</b><small>Play on your own.</small></button>
         <button class="mode ${S.online ? 'on' : ''}" id="online-on"><b>🌐 Online</b><small>See other trainers live and wave at them.</small></button>
       </div>
-      <p class="sub fine-note">Online shares your trainer name, level and neighborhood with other players through a public server. Your map position is shared only in Explore mode — in Live GPS mode your real location is never sent.</p>
+      <p class="sub fine-note">Online shares your trainer name, level and neighborhood with other players through a public server. Your map position is shared only in Explore mode — in Live GPS mode your real location is never sent. Your trainer name, level, catches and playtime appear on the public player tracker.</p>
       <h2 style="font-size:18px">🎵 Music</h2>
       <select id="music-select">${[['auto', 'Auto (changes by neighborhood)'], ...Object.entries(Music.TRACK_NAMES)].map(([k, n]) => `<option value="${k}" ${S.music === k ? 'selected' : ''}>${n}</option>`).join('')}</select>
       <div class="row"><button class="ghost" id="map-dl">📥 Save the whole map for offline play</button></div>
@@ -3530,6 +3530,54 @@
   // quiet background backups while signed in
   setInterval(() => { if (acct && mode === 'map') cloudSave(true); }, 120000);
   addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && acct) cloudSave(true); });
+
+  // ---------------- playtime & player tracker ----------------
+  // Counts time actually spent playing (page visible and touched in the last 2 minutes, or walking in Live GPS mode),
+  // per day, and reports it to the public player tracker (tracker.html).
+  const DAY = 86400000, dayOf = t => Math.floor(t / DAY), IDLE_MS = 120000;
+  if (!S.play) {
+    // First load after the tracker update: rebuild this player's history since launch from their catch timestamps.
+    // Catches within 20 minutes of each other count as one sitting (its span plus 5 minutes).
+    const ts = S.caught.map(c => c.t).filter(t => t > 1.7e12 && t <= Date.now()).sort((a, b) => a - b), days = {};
+    let est = 0, sittings = 0;
+    for (let i = 0; i < ts.length;) {
+      let j = i; while (j + 1 < ts.length && ts[j + 1] - ts[j] < 20 * 60000) j++;
+      const sec = Math.round((ts[j] - ts[i] + 300000) / 1000);
+      est += sec; sittings++; days[dayOf(ts[i])] = (days[dayOf(ts[i])] || 0) + sec;
+      i = j + 1;
+    }
+    S.play = { sec: 0, est, sessions: sittings || 1, first: ts[0] || Date.now(), last: ts[ts.length - 1] || Date.now(), days };
+    save();
+  }
+  let lastInput = Date.now(), lastTick = Date.now();
+  for (const ev of ['pointerdown', 'keydown', 'wheel']) addEventListener(ev, () => { lastInput = Date.now(); }, true);
+  function newSessionIfAway() { if (Date.now() - S.play.last > 30 * 60000) { S.play.sessions++; S.play.last = Date.now(); } }
+  newSessionIfAway();
+  setInterval(() => {
+    const now = Date.now(), dt = Math.min(now - lastTick, 5000); lastTick = now;
+    if (document.visibilityState !== 'visible' || (now - lastInput > IDLE_MS && !(S.mode === 'live' && P.moving))) return;
+    newSessionIfAway();
+    S.play.sec += dt / 1000; S.play.last = now;
+    const d = dayOf(now); S.play.days[d] = (S.play.days[d] || 0) + dt / 1000;
+  }, 1000);
+  const trackRecord = () => {
+    const days = {};
+    for (const [d, s] of Object.entries(S.play.days).sort((a, b) => b[0] - a[0]).slice(0, 365)) days[d] = Math.round(s);
+    return { v: 1, id: S.pid, n: S.name || '', l: S.level, pt: Math.round(S.play.sec), est: S.play.est, ss: S.play.sessions,
+      first: S.play.first, last: S.play.last, c: S.caught.length, dx: SPECIES.filter(s => dexEntry(s.id).caught).length,
+      w: Math.round(S.walked), acct: acct ? 1 : 0, gv: GAME_VERSION, t: Date.now(), days };
+  };
+  let reporting = false;
+  async function reportStats() {
+    if (reporting) return;
+    reporting = true;
+    try { save(); await RGCloud.report(S.pid, trackRecord()); } catch (e) { /* offline */ }
+    reporting = false;
+  }
+  setTimeout(reportStats, 8000);
+  setInterval(() => { if (document.visibilityState === 'visible' && Date.now() - lastInput < IDLE_MS) reportStats(); }, 180000);
+  addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') reportStats(); else newSessionIfAway(); });
+  function fmtPlay(s) { return s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m` : `${Math.round(s / 60)}m`; }
 
   // ---------------- chat & emotes ----------------
   const chatLog = [];

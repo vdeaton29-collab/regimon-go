@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Regimon GO Tracker</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="icon.svg">
+  <style>
+    :root {
+      --bg: #f6f4ec; --card: #fffdf7; --ink: #1b1b2f; --muted: #6b6f80; --line: #e4e0d2;
+      --bar: #1f3a93; --bar-hi: #14204a; --accent: #8c1d2f; --good: #1e7a46;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) { --bg: #10142a; --card: #181d38; --ink: #eef0f8; --muted: #9aa0b8; --line: #2a3156; --bar: #8aa4ff; --bar-hi: #c3d0ff; --accent: #f2c14e; --good: #5fd08f; }
+    }
+    :root[data-theme="dark"] { --bg: #10142a; --card: #181d38; --ink: #eef0f8; --muted: #9aa0b8; --line: #2a3156; --bar: #8aa4ff; --bar-hi: #c3d0ff; --accent: #f2c14e; --good: #5fd08f; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 "Trebuchet MS", "Segoe UI", system-ui, sans-serif; }
+    main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 40px; }
+    header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
+    h1 { margin: 0; font-size: 24px; }
+    h2 { font-size: 16px; margin: 0 0 10px; }
+    .status { color: var(--muted); font-size: 13px; }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 6px; vertical-align: middle; }
+    .dot.on { background: var(--good); }
+    .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 18px 0; }
+    .tile, .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+    .tile { padding: 12px 14px; }
+    .tile b { display: block; font-size: 24px; font-variant-numeric: tabular-nums; }
+    .tile span { color: var(--muted); font-size: 13px; }
+    .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; }
+    .card { padding: 14px; min-width: 0; }
+    .chart { position: relative; }
+    .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+    .chart text { fill: var(--muted); font-size: 11px; }
+    .chart .grid { stroke: var(--line); stroke-width: 1; }
+    .chart .bar { fill: var(--bar); pointer-events: none; }
+    .chart .hit:hover + .bar, .chart .bar.hi { fill: var(--bar-hi); }
+    .tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--bg); font-size: 12px; padding: 5px 8px; border-radius: 6px; white-space: nowrap; transform: translate(-50%, -100%); display: none; }
+    .tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 18px 0 10px; }
+    .tools input { flex: 1 1 200px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; }
+    .tools button { padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; cursor: pointer; }
+    .tablewrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    th:first-child, td:first-child { text-align: left; }
+    th { font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; position: sticky; top: 0; background: var(--card); }
+    th.sorted { color: var(--ink); }
+    td small { color: var(--muted); }
+    .live { color: var(--good); font-weight: bold; }
+    .note { color: var(--muted); font-size: 13px; margin-top: 12px; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>📊 Regimon GO player tracker</h1>
+    <div class="status"><span class="dot" id="dot"></span><span id="status">Connecting…</span></div>
+  </header>
+
+  <section class="tiles" id="tiles"></section>
+
+  <section class="charts">
+    <div class="card"><h2>Players per day since launch</h2><div class="chart" id="chart-players"></div></div>
+    <div class="card"><h2>Hours played per day since launch</h2><div class="chart" id="chart-hours"></div></div>
+  </section>
+
+  <div class="tools">
+    <input id="search" placeholder="Search trainers…" autocomplete="off">
+    <button id="csv">⬇️ Download CSV</button>
+  </div>
+  <div class="card tablewrap"><table id="table"></table></div>
+  <p class="note">
+    Players show up here after they open game version 21 or newer. History before that update (first played, playtime per day) is
+    rebuilt from each player's catch times, so older playtime is an estimate and is marked with ~. Trainers who are online right now on an
+    older version are listed as "older version" until they reload. Data comes from public servers, and this page also keeps
+    a copy in your browser so nothing disappears if a server is wiped.
+  </p>
+</main>
+<script>
+(() => {
+  const LAUNCH = Date.UTC(2026, 8, 28), DAY = 86400000, ROOT = 'regimongo/v1';
+  const BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt', 'wss://test.mosquitto.org:8081/mqtt'];
+  const CACHE_KEY = 'rg-tracker-cache-v1';
+  const enc = new TextEncoder(), dec = new TextDecoder();
+  const $ = s => document.querySelector(s);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const num = (v, lo, hi) => (typeof v === 'number' && isFinite(v) && v >= lo && v <= hi ? v : 0);
+  const cleanName = s => String(s || '').replace(/[^\p{L}\p{N} _.\-']/gu, '').trim().slice(0, 16);
+
+  // ---------- data ----------
+  const players = new Map();   // id → cleaned stats record
+  const online = new Map();    // id → { name, lvl, t } from live presence
+  try { for (const r of JSON.parse(localStorage.getItem(CACHE_KEY) || '[]')) players.set(r.id, r); } catch (e) { /* no cache */ }
+  const persist = () => { try { localStorage.setItem(CACHE_KEY, JSON.stringify([...players.values()])); } catch (e) { /* ignore */ } };
+
+  function clean(m) {
+    if (!m || typeof m.id !== 'string' || !/^[a-z0-9]{4,20}$/.test(m.id)) return null;
+    const now = Date.now() + DAY, days = {};
+    if (m.days && typeof m.days === 'object') for (const [d, s] of Object.entries(m.days).slice(0, 400)) {
+      const di = +d; if (Number.isInteger(di) && di * DAY >= LAUNCH - DAY && di * DAY <= now) days[di] = num(s, 0, 86400);
+    }
+    return {
+      id: m.id, n: cleanName(m.n), l: num(m.l, 1, 999) || 1, pt: num(m.pt, 0, 1e8), est: num(m.est, 0, 1e8), ss: num(m.ss, 0, 1e6),
+      first: num(m.first, LAUNCH - DAY, now) || null, last: num(m.last, LAUNCH - DAY, now) || null,
+      c: num(m.c, 0, 1e6), dx: num(m.dx, 0, 1e4), w: num(m.w, 0, 1e9), acct: m.acct ? 1 : 0, gv: num(m.gv, 0, 1e4), t: num(m.t, 0, now), days,
+    };
+  }
+  function onStats(text) {
+    if (!text) return;
+    let r; try { r = clean(JSON.parse(text)); } catch (e) { return; }
+    if (!r) return;
+    const old = players.get(r.id);
+    if (old && old.t >= r.t) return;
+    players.set(r.id, r); persist(); schedule();
+  }
+  function onPresence(text) {
+    let m; try { m = JSON.parse(text); } catch (e) { return; }
+    if (!m || typeof m.id !== 'string' || m.id.length > 40) return;
+    if (m.leave) online.delete(m.id); else online.set(m.id, { name: cleanName(m.n), lvl: num(m.l, 1, 999) || 1, t: Date.now() });
+    schedule();
+  }
+
+  // ---------- MQTT (subscribe only) ----------
+  const str = s => { const b = enc.encode(s); return [b.length >> 8, b.length & 255, ...b]; };
+  const remLen = n => { const o = []; do { let d = n % 128; n = Math.floor(n / 128); if (n > 0) d |= 128; o.push(d); } while (n > 0); return o; };
+  const packet = (t, body) => { const h = new Uint8Array([t, ...remLen(body.length)]); const p = new Uint8Array(h.length + body.length); p.set(h); p.set(body, h.length); return p; };
+  const links = new Set();
+  function connect(url, delay = 1500) {
+    let ws, buf = new Uint8Array(0), ping;
+    try { ws = new WebSocket(url, ['mqtt']); } catch (e) { return; }
+    ws.binaryType = 'arraybuffer';
+    const retry = () => { clearInterval(ping); if (links.delete(url)) paintStatus(); setTimeout(() => connect(url, Math.min(delay * 2, 30000)), delay); };
+    ws.onclose = retry;
+    ws.onopen = () => ws.send(packet(0x10, new Uint8Array([...str('MQTT'), 4, 2, 0, 60, ...str('rgt-' + Math.random().toString(36).slice(2, 12))])));
+    ws.onmessage = e => {
+      const c = new Uint8Array(e.data), m = new Uint8Array(buf.length + c.length); m.set(buf); m.set(c, buf.length); buf = m;
+      for (;;) {
+        if (buf.length < 2) return;
+        let len = 0, mul = 1, i = 1, b;
+        do { if (i >= buf.length) return; b = buf[i++]; len += (b & 127) * mul; mul *= 128; } while (b & 128);
+        if (buf.length < i + len) return;
+        const h = buf[0], body = buf.subarray(i, i + len); buf = buf.slice(i + len);
+        if (h >> 4 === 2) {
+          if (body[1] !== 0) { ws.close(); return; }
+          delay = 1500; links.add(url); paintStatus();
+          ws.send(packet(0x82, new Uint8Array([0, 1, ...str(ROOT + '/stats/+'), 0, ...str(ROOT + '/p/+'), 0])));
+          ping = setInterval(() => ws.readyState === 1 && ws.send(new Uint8Array([0xc0, 0])), 30000);
+        } else if (h >> 4 === 3) {
+          const tl = (body[0] << 8) | body[1], topic = dec.decode(body.subarray(2, 2 + tl)), qos = (h >> 1) & 3;
+          const text = dec.decode(body.subarray(2 + tl + (qos ? 2 : 0)));
+          if (topic.startsWith(ROOT + '/stats/')) onStats(text);
+          else if (topic.startsWith(ROOT + '/p/')) onPresence(text);
+        }
+      }
+    };
+  }
+  function paintStatus() {
+    $('#dot').classList.toggle('on', links.size > 0);
+    $('#status').textContent = links.size ? `Live · ${links.size}/${BROKERS.length} servers` : 'Connecting…';
+  }
+  BROKERS.forEach(u => connect(u));
+
+  // ---------- view ----------
+  const fmtTime = s => s < 60 ? (s ? '<1m' : '0m') : s < 3600 ? `${Math.round(s / 60)}m` : `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m`;
+  const fmtDate = t => t ? new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—';
+  const ago = t => { if (!t) return '—'; const s = (Date.now() - t) / 1000; return s < 120 ? 'just now' : s < 3600 ? `${Math.round(s / 60)}m ago` : s < 86400 ? `${Math.round(s / 3600)}h ago` : `${Math.round(s / 86400)}d ago`; };
+  const isOnline = id => { const o = online.get(id); return o && Date.now() - o.t < 20000; };
+
+  let sortKey = 'last', sortDir = -1;
+  const COLS = [
+    ['n', 'Trainer'], ['l', 'Level'], ['play', 'Playtime'], ['ss', 'Sessions'], ['c', 'Caught'], ['dx', 'Regidex'],
+    ['w', 'Walked'], ['first', 'First played'], ['last', 'Last seen'], ['gv', 'Version'],
+  ];
+  function rows() {
+    const list = [...players.values()].map(r => ({ ...r, play: r.pt + r.est, live: isOnline(r.id) }));
+    for (const [id, o] of online) if (!players.has(id) && Date.now() - o.t < 20000) list.push({ id, n: o.name, l: o.lvl, play: 0, pt: 0, est: 0, ss: 0, c: 0, dx: 0, w: 0, first: null, last: o.t, gv: 0, old: true, live: true });
+    return list;
+  }
+  function render() {
+    const all = rows(), now = Date.now();
+    const recs = all.filter(r => !r.old);
+    const sum = k => recs.reduce((a, r) => a + r[k], 0);
+    const active = ms => all.filter(r => r.live || (r.last && now - r.last < ms)).length;
+    const tiles = [
+      [all.length, 'Players'], [fmtTime(sum('play')), 'Total playtime'], [[...online.values()].filter(o => now - o.t < 20000).length, 'Online now'],
+      [active(DAY), 'Active today'], [active(7 * DAY), 'Active this week'], [sum('c').toLocaleString(), 'Regimon caught'], [recs.filter(r => r.acct).length, 'With accounts'],
+    ];
+    $('#tiles').innerHTML = tiles.map(([v, l]) => `<div class="tile"><b>${v}</b><span>${l}</span></div>`).join('');
+
+    // daily series since launch
+    const d0 = Math.floor(LAUNCH / DAY), d1 = Math.floor(now / DAY), days = [];
+    for (let d = d0; d <= d1; d++) days.push({ d, players: 0, sec: 0 });
+    for (const r of recs) for (const [d, s] of Object.entries(r.days)) { const x = days[d - d0]; if (x && s > 0) { x.players++; x.sec += s; } }
+    bars($('#chart-players'), days.map(x => ({ d: x.d, v: x.players, label: `${x.players} player${x.players === 1 ? '' : 's'}` })), true);
+    bars($('#chart-hours'), days.map(x => ({ d: x.d, v: x.sec / 3600, label: fmtTime(Math.round(x.sec)) })));
+
+    // table
+    const q = $('#search').value.trim().toLowerCase();
+    const shown = all.filter(r => !q || (r.n || '').toLowerCase().includes(q)).sort((a, b) => {
+      const x = a[sortKey], y = b[sortKey];
+      return (typeof x === 'string' ? x.localeCompare(y || '') : (x || 0) - (y || 0)) * sortDir;
+    });
+    $('#table').innerHTML = `<thead><tr>${COLS.map(([k, l]) => `<th data-k="${k}" class="${k === sortKey ? 'sorted' : ''}">${l}${k === sortKey ? (sortDir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}</tr></thead>
+      <tbody>${shown.map(r => `<tr>
+        <td>${r.live ? '<span class="live">● </span>' : ''}${esc(r.n || 'Unnamed trainer')}${r.acct ? ' <small>☁️</small>' : ''}</td>
+        <td>${r.l}</td>
+        <td>${r.old ? '—' : (r.est > r.pt ? '~' : '') + fmtTime(r.play)}</td>
+        <td>${r.old ? '—' : r.ss}</td><td>${r.old ? '—' : r.c}</td><td>${r.old ? '—' : r.dx}</td>
+        <td>${r.old ? '—' : (r.w / 1000).toFixed(1) + ' km'}</td>
+        <td>${fmtDate(r.first)}</td><td>${r.live ? '<span class="live">online</span>' : ago(r.last)}</td>
+        <td>${r.old ? '<small>older version</small>' : 'v' + r.gv}</td></tr>`).join('') || `<tr><td colspan="${COLS.length}" style="text-align:center;color:var(--muted);padding:24px">No players yet — they appear here when they open the game.</td></tr>`}</tbody>`;
+    document.querySelectorAll('th[data-k]').forEach(th => { th.onclick = () => { const k = th.dataset.k; sortDir = k === sortKey ? -sortDir : (k === 'n' ? 1 : -1); sortKey = k; render(); }; });
+  }
+
+  // Bar chart, one series: 4px rounded tops, baseline-anchored, hover tooltip on a full-height hit area.
+  function bars(el, data, whole) {
+    const W = 600, H = 180, L = 30, B = 22, T = 8, max = Math.max(1, ...data.map(x => x.v));
+    const step = whole ? Math.max(1, Math.round(niceStep(max))) : niceStep(max), top = Math.ceil(max / step) * step, bw = (W - L) / data.length, y = v => H - B - (v / top) * (H - B - T);
+    let g = '';
+    for (let v = 0; v <= top + 1e-9; v += step) g += `<line class="grid" x1="${L}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${+v.toFixed(1)}</text>`;
+    const every = Math.max(1, Math.ceil(data.length / 6));
+    data.forEach((x, i) => {
+      const bx = L + i * bw + 1, w = Math.max(1, bw - 2), h = H - B - y(x.v), r = Math.min(4, w / 2, h);
+      if (i % every === 0) g += `<text x="${bx + w / 2}" y="${H - 6}" text-anchor="middle">${fmtDate(x.d * DAY + DAY / 2)}</text>`;
+      g += `<rect class="hit" data-i="${i}" x="${L + i * bw}" y="${T}" width="${bw}" height="${H - B - T}" fill="transparent"/>`;
+      g += x.v > 0 ? `<path class="bar" d="M${bx},${H - B} v${-(h - r)} q0,${-r} ${r},${-r} h${w - 2 * r} q${r},0 ${r},${r} v${h - r} z"/>` : '<g></g>';
+    });
+    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img">${g}</svg><div class="tip"></div>`;
+    const tip = el.querySelector('.tip'), svg = el.querySelector('svg');
+    svg.querySelectorAll('.hit').forEach(hit => {
+      hit.onpointerenter = () => {
+        const x = data[+hit.dataset.i], box = svg.getBoundingClientRect(), sx = box.width / W;
+        tip.innerHTML = `<b>${fmtDate(x.d * DAY + DAY / 2)}</b> · ${x.label}`;
+        tip.style.left = `${(+hit.getAttribute('x') + bw / 2) * sx}px`; tip.style.top = `${y(x.v) * (box.height / H) - 6}px`; tip.style.display = 'block';
+      };
+      hit.onpointerleave = () => { tip.style.display = 'none'; };
+    });
+  }
+  function niceStep(max) { const raw = max / 4, p = 10 ** Math.floor(Math.log10(raw)), n = raw / p; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p; }
+
+  let pending = 0;
+  function schedule() { if (!pending) pending = setTimeout(() => { pending = 0; render(); }, 300); }
+  $('#search').oninput = render;
+  $('#csv').onclick = () => {
+    const head = ['id', 'name', 'level', 'playtime_min', 'estimated_min', 'sessions', 'caught', 'regidex', 'walked_m', 'first_played', 'last_seen', 'account', 'version'];
+    const iso = t => t ? new Date(t).toISOString() : '';
+    const lines = [...players.values()].map(r => [r.id, `"${(r.n || '').replace(/"/g, '""')}"`, r.l, Math.round(r.pt / 60), Math.round(r.est / 60), r.ss, r.c, r.dx, r.w, iso(r.first), iso(r.last), r.acct, r.gv].join(','));
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([[head.join(','), ...lines].join('\n')], { type: 'text/csv' }));
+    a.download = `regimon-players-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+  };
+  render();
+  setInterval(render, 15000);
+})();
+</script>
+</body>
+</html>
